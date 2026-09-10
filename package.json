@@ -1,5 +1,5 @@
 {
-  "name": "enterprise-refactor-agent",
+  "name": "cural",
   "version": "0.1.0",
   "private": true,
   "scripts": {
@@ -9,12 +9,20 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "@cursor/sdk": "^1.0.31",
+    "@dagrejs/dagre": "^3.1.1",
+    "@liveblocks/client": "^3.24.1",
+    "@liveblocks/node": "^3.24.1",
+    "@liveblocks/react": "^3.24.1",
+    "@xyflow/react": "^12.11.6",
+    "nanoid": "^5.1.16",
     "next": "16.3.4",
     "react": "19.2.8",
     "react-dom": "19.2.8"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
+    "@types/dagre": "^0.7.54",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
