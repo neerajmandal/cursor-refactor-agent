@@ -7,7 +7,7 @@ export const SAMPLE_AS_IS: Graph = layoutGraph({
     {
       id: "controller",
       label: "ChatController",
-      kind: "app",
+      kind: "controller",
       spec: {
         purpose: "Accepts the HTTP question and waits for the saga to finish.",
         interface: "POST /chat",
@@ -18,11 +18,11 @@ export const SAMPLE_AS_IS: Graph = layoutGraph({
         doneWhen: "n/a",
       },
     },
-    { id: "bus", label: "In-process bus", kind: "lib" },
+    { id: "bus", label: "In-process bus", kind: "messaging" },
     {
       id: "saga",
       label: "ChatRequestSaga",
-      kind: "service",
+      kind: "orchestration",
       spec: {
         purpose: "Orchestrates domain, retrieval, and generation over the bus.",
         interface: "ChatRequestSaga.handle(event)",
@@ -33,9 +33,9 @@ export const SAMPLE_AS_IS: Graph = layoutGraph({
         doneWhen: "n/a",
       },
     },
-    { id: "domain", label: "DomainConsumer", kind: "service" },
-    { id: "retrieval", label: "RetrievalConsumer", kind: "service" },
-    { id: "generation", label: "GenerationConsumer", kind: "service" },
+    { id: "domain", label: "DomainConsumer", kind: "consumer" },
+    { id: "retrieval", label: "RetrievalConsumer", kind: "consumer" },
+    { id: "generation", label: "GenerationConsumer", kind: "consumer" },
   ],
   edges: [
     { from: "controller", to: "bus" },
@@ -52,7 +52,7 @@ export const SAMPLE_TO_BE: Graph = layoutGraph({
     {
       id: "controller",
       label: "ChatController",
-      kind: "app",
+      kind: "controller",
       spec: {
         purpose: "HTTP entry. Delegates to ChatService and returns ChatResponse.",
         interface: "POST /chat",
@@ -82,7 +82,7 @@ export const SAMPLE_TO_BE: Graph = layoutGraph({
     {
       id: "domain",
       label: "DomainRouter",
-      kind: "service",
+      kind: "router",
       spec: {
         purpose: "Pick a domain for the question.",
         interface: "resolve(question, domain_hint) -> domain_id",

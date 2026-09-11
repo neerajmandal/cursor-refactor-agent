@@ -1,8 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import Link from "next/link";
 import { ArchitecturePane } from "@/components/ArchitecturePane";
+import { BoardChrome } from "@/components/BoardChrome";
 import { EvidencePanel } from "@/components/EvidencePanel";
 import { SpecPanel } from "@/components/SpecPanel";
 import { SAMPLE_AS_IS, SAMPLE_TO_BE } from "@/lib/sample-board";
@@ -87,37 +87,29 @@ export function PreviewBoard() {
   }
 
   return (
-    <div className="relative flex h-svh min-h-0 flex-col">
-      <header className="shrink-0 border-b border-line">
-        <div className="flex min-h-12 items-center gap-5 px-4">
-          <Link href="/" className="font-serif text-[28px] font-semibold tracking-[0.04em]">Cural</Link>
-          <div className="ml-auto">
-            {phase === "aligning" ? (
-              <button type="button" onClick={executeProof} className="bg-accent px-3 py-1.5 text-[13px] text-accent-ink">
-                Execute plan
-              </button>
-            ) : (
-              <span className="text-[12px] text-muted">
-                {phase === "done" ? "Required journey passed" : "Working…"}
-              </span>
-            )}
-          </div>
-        </div>
-        <div className="flex gap-5 border-t border-line px-4">
-          {(["architecture", "evidence"] as const).map((item) => (
+    <div className="relative flex h-svh min-h-0 flex-col bg-paper">
+      <BoardChrome
+        view={view}
+        onViewChange={setView}
+        status={
+          phase !== "aligning" ? (
+            <span className="text-[12px] text-muted">
+              {phase === "done" ? "Required journey passed" : "Working…"}
+            </span>
+          ) : null
+        }
+        primaryAction={
+          phase === "aligning" ? (
             <button
-              key={item}
               type="button"
-              onClick={() => setView(item)}
-              className={`border-b-2 py-2 text-[11px] uppercase tracking-[0.14em] ${
-                view === item ? "border-accent" : "border-transparent text-muted"
-              }`}
+              onClick={executeProof}
+              className="inline-flex items-center gap-2 rounded-md bg-cta px-3.5 py-2 text-[13px] font-medium text-white transition-colors hover:bg-ink"
             >
-              {item}
+              Execute plan <span aria-hidden>→</span>
             </button>
-          ))}
-        </div>
-      </header>
+          ) : null
+        }
+      />
 
       {view === "evidence" ? (
         <EvidencePanel
@@ -147,6 +139,7 @@ export function PreviewBoard() {
           <ArchitecturePane
             pane="asIs"
             title="Current"
+            subtitle="Existing architecture (as-is)"
             graph={asIs}
             selectable={false}
             selectedId={null}
@@ -158,6 +151,7 @@ export function PreviewBoard() {
           <ArchitecturePane
             pane="toBe"
             title="Target"
+            subtitle="Proposed architecture (to-be)"
             graph={toBe}
             selectable
             selectedId={selectedId}

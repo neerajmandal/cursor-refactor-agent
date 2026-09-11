@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import {
   useMutation,
@@ -11,6 +10,7 @@ import {
 } from "@liveblocks/react/suspense";
 import { AgentIdLink } from "@/components/AgentIdLink";
 import { ArchitecturePane } from "@/components/ArchitecturePane";
+import { BoardChrome, BoardOverflowItem } from "@/components/BoardChrome";
 import { EvidencePanel } from "@/components/EvidencePanel";
 import { SpecInspector } from "@/components/SpecInspector";
 import {
@@ -797,67 +797,70 @@ export function Board() {
   const locked = busy || phase === "done";
 
   return (
-    <div className="flex h-full min-h-0 flex-col">
-      <header className="shrink-0 border-b border-line">
-        <div className="flex min-h-12 flex-wrap items-center gap-x-5 gap-y-2 px-4 py-2">
-          <Link href="/" className="font-serif text-[28px] font-semibold tracking-[0.04em]">Cural</Link>
-          <p className="text-[13px] text-muted">{PHASE_LABEL[phase]}</p>
-          {others.length > 0 ? (
-            <p className="text-[12px] text-muted">{others.length + 1} here</p>
-          ) : null}
-          <div className="ml-auto flex items-center gap-3">
+    <div className="flex h-full min-h-0 flex-col bg-paper">
+      <BoardChrome
+        view={view}
+        onViewChange={setView}
+        status={
+          <div className="flex max-w-md items-center gap-2">
             {error ? (
-              <p title={error} className="max-w-sm truncate text-[12px] text-bad">{error}</p>
-            ) : null}
+              <p title={error} className="truncate text-[12px] text-bad">
+                {error}
+              </p>
+            ) : others.length > 0 ? (
+              <p className="text-[12px] text-muted">{others.length + 1} here</p>
+            ) : (
+              <p className="hidden text-[12px] text-muted lg:block">{PHASE_LABEL[phase]}</p>
+            )}
             {error && (phase === "analyzing_current" || phase === "analyzing_target") ? (
-              <button type="button" onClick={retryAnalysis} className="text-[12px] text-accent">
+              <button type="button" onClick={retryAnalysis} className="shrink-0 text-[12px] text-accent">
                 Retry
               </button>
             ) : null}
             {phase === "parity_failed" && executionSnapshot ? (
-              <button type="button" onClick={retryEvaluation} className="text-[12px] text-accent">
+              <button type="button" onClick={retryEvaluation} className="shrink-0 text-[12px] text-accent">
                 Retry evaluation
               </button>
             ) : null}
+          </div>
+        }
+        primaryAction={
+          phase === "aligning" ? (
             <button
               type="button"
-              onClick={regenerate}
-              disabled={!legacyRepo || busy}
-              className="text-[12px] text-muted hover:text-ink disabled:opacity-40"
+              onClick={() => void execute()}
+              className="inline-flex items-center gap-2 rounded-md bg-cta px-3.5 py-2 text-[13px] font-medium text-white transition-colors hover:bg-ink"
             >
+              Execute plan <span aria-hidden>→</span>
+            </button>
+          ) : null
+        }
+        overflow={
+          <>
+            <BoardOverflowItem onClick={regenerate} disabled={!legacyRepo || busy}>
               Regenerate
-            </button>
-            <button type="button" onClick={() => void copyLink()} className="text-[12px] text-muted hover:text-ink">
+            </BoardOverflowItem>
+            <BoardOverflowItem onClick={() => void copyLink()}>
               {copied ? "Copied" : "Copy link"}
-            </button>
-            {phase === "aligning" ? (
-              <button type="button" onClick={() => void execute()} className="bg-accent px-3 py-1.5 text-[13px] font-medium text-accent-ink">
-                Execute
-              </button>
+            </BoardOverflowItem>
+            {analyzeAgentId ? (
+              <div className="border-t border-line px-3 py-2">
+                <AgentIdLink label="Analyze" id={analyzeAgentId} />
+              </div>
             ) : null}
-          </div>
-        </div>
-
-        <div className="flex items-center gap-5 border-t border-line px-4">
-          {(["architecture", "evidence"] as View[]).map((item) => (
-            <button
-              key={item}
-              type="button"
-              onClick={() => setView(item)}
-              className={`border-b-2 py-2 text-[11px] uppercase tracking-[0.14em] ${
-                view === item ? "border-accent text-ink" : "border-transparent text-muted"
-              }`}
-            >
-              {item}
-            </button>
-          ))}
-          <div className="ml-auto hidden flex-wrap items-center gap-x-5 py-1 lg:flex">
-            <AgentIdLink label="Analyze" id={analyzeAgentId} />
-            <AgentIdLink label="Execute" id={executeAgentId} />
-            <AgentIdLink label="Evaluate" id={evaluationAgentId} />
-          </div>
-        </div>
-      </header>
+            {executeAgentId ? (
+              <div className="border-t border-line px-3 py-2">
+                <AgentIdLink label="Execute" id={executeAgentId} />
+              </div>
+            ) : null}
+            {evaluationAgentId ? (
+              <div className="border-t border-line px-3 py-2">
+                <AgentIdLink label="Evaluate" id={evaluationAgentId} />
+              </div>
+            ) : null}
+          </>
+        }
+      />
 
       {!legacyRepo ? (
         <p className="px-4 py-10 text-sm text-muted">
@@ -875,6 +878,7 @@ export function Board() {
           <ArchitecturePane
             pane="asIs"
             title="Current"
+            subtitle="Existing architecture (as-is)"
             graph={asIs}
             selectable
             selectedId={selected?.pane === "asIs" ? selected.id : null}
@@ -888,6 +892,7 @@ export function Board() {
           <ArchitecturePane
             pane="toBe"
             title="Target"
+            subtitle="Proposed architecture (to-be)"
             graph={toBe}
             selectable
             selectedId={selected?.pane === "toBe" ? selected.id : null}

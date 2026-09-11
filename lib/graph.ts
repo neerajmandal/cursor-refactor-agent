@@ -1,10 +1,10 @@
 import { parseSpec } from "@/lib/spec";
 import type { Graph, GraphEdge, GraphNode } from "@/lib/types";
 
-const NODE_WIDTH = 180;
-const NODE_HEIGHT = 52;
-const GAP_X = 28;
-const GAP_Y = 72;
+const NODE_WIDTH = 220;
+const NODE_HEIGHT = 80;
+const GAP_X = 32;
+const GAP_Y = 88;
 
 function asRecord(value: unknown): Record<string, unknown> | null {
   if (value && typeof value === "object" && !Array.isArray(value)) {

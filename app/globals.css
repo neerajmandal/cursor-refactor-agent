@@ -2,16 +2,18 @@
 @import "@xyflow/react/dist/style.css";
 
 :root {
-  --paper: #f3ece1;
-  --paper-2: #ebe2d4;
-  --ink: #1f1a16;
-  --muted: #7a7068;
-  --line: #d4c8b8;
-  --node: #fffaf4;
-  --accent: #c45c26;
-  --accent-ink: #fffaf4;
-  --good: #2f6f4e;
-  --bad: #9b2c2c;
+  --paper: #f4f5f7;
+  --paper-2: #eef0f3;
+  --ink: #1a1a1a;
+  --muted: #6b7280;
+  --line: #e5e7eb;
+  --node: #ffffff;
+  --accent: #7c3aed;
+  --accent-soft: #f3e8ff;
+  --accent-ink: #ffffff;
+  --cta: #1f1f1f;
+  --good: #2f855a;
+  --bad: #c94b4b;
 }
 
 @theme inline {
@@ -22,7 +24,9 @@
   --color-line: var(--line);
   --color-node: var(--node);
   --color-accent: var(--accent);
+  --color-accent-soft: var(--accent-soft);
   --color-accent-ink: var(--accent-ink);
+  --color-cta: var(--cta);
   --color-good: var(--good);
   --color-bad: var(--bad);
   --font-sans: var(--font-geist-sans);
@@ -38,43 +42,44 @@ body {
   font-family: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
 }
 
-* {
-  border-color: var(--line);
-}
-
 .react-flow {
-  background: #ffffff;
+  background: #f9fafb;
 }
 
 .react-flow__edge-path {
-  stroke: #8a7d6f;
+  stroke: #9ca3af;
   stroke-width: 1.25;
 }
 
 .react-flow__edge-text {
-  fill: #7a7068;
+  fill: #6b7280;
   font-size: 10px;
 }
 
 .react-flow__controls {
-  box-shadow: none;
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.04);
   border: 1px solid var(--line);
-  border-radius: 2px;
+  border-radius: 8px;
   overflow: hidden;
+  background: #ffffff;
 }
 
 .react-flow__controls-button {
-  background: var(--node);
+  background: #ffffff;
   border-bottom-color: var(--line);
   fill: var(--ink);
-  width: 24px;
-  height: 24px;
+  width: 28px;
+  height: 28px;
+}
+
+.react-flow__controls-button:hover {
+  background: var(--paper-2);
 }
 
 .react-flow__handle {
   width: 6px;
   height: 6px;
-  background: #8a7d6f;
+  background: #9ca3af;
   border: none;
 }
 

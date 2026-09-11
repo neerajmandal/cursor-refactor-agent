@@ -10,6 +10,7 @@ import {
   ReactFlow,
   ReactFlowProvider,
   useReactFlow,
+  useStore,
   type Edge,
   type Node,
 } from "@xyflow/react";
@@ -32,6 +33,7 @@ function graphToFlow(
   graph: Graph,
   nodeStatus: Record<string, NodeStatus>,
   selectedId: string | null,
+  emphasizeHub: boolean,
 ): { nodes: ComponentFlowNode[]; edges: Edge[] } {
   const tree = layoutGraph(graph);
   const storedPositions = new Map(
@@ -45,10 +47,12 @@ function graphToFlow(
   }
   let emphasizedId: string | null = null;
   let maxChildren = 1;
-  for (const [id, count] of childCount) {
-    if (count > maxChildren) {
-      maxChildren = count;
-      emphasizedId = id;
+  if (emphasizeHub) {
+    for (const [id, count] of childCount) {
+      if (count > maxChildren) {
+        maxChildren = count;
+        emphasizedId = id;
+      }
     }
   }
   return {
@@ -71,10 +75,10 @@ function graphToFlow(
       source: edge.from,
       target: edge.to,
       type: "step",
-      style: { stroke: "#8a7d6f", strokeDasharray: "5 4" },
+      style: { stroke: "#9ca3af", strokeDasharray: "5 4" },
       markerEnd: {
         type: MarkerType.ArrowClosed,
-        color: "#8a7d6f",
+        color: "#9ca3af",
         width: 16,
         height: 16,
       },
@@ -82,9 +86,19 @@ function graphToFlow(
   };
 }
 
+function ZoomBadge() {
+  const zoom = useStore((state) => state.transform[2]);
+  return (
+    <div className="pointer-events-none absolute bottom-3 right-3 z-10 rounded-md border border-line bg-white px-2 py-1 text-[11px] font-medium tabular-nums text-muted shadow-sm">
+      {Math.round(zoom * 100)}%
+    </div>
+  );
+}
+
 function PaneInner({
   pane,
   title,
+  subtitle,
   graph,
   selectable,
   selectedId,
@@ -96,6 +110,7 @@ function PaneInner({
 }: {
   pane: "asIs" | "toBe";
   title: string;
+  subtitle?: string;
   graph: Graph;
   selectable: boolean;
   selectedId: string | null;
@@ -110,11 +125,11 @@ function PaneInner({
   const { fitView, getViewport, setViewport, screenToFlowPosition } = useReactFlow();
   const previousKey = useRef("");
   const layoutKey = topologyKey(graph);
+  const emphasizeHub = pane === "toBe";
   const { nodes, edges } = useMemo(
-    () => graphToFlow(graph, nodeStatus, selectedId),
-    [graph, nodeStatus, selectedId],
+    () => graphToFlow(graph, nodeStatus, selectedId, emphasizeHub),
+    [emphasizeHub, graph, nodeStatus, selectedId],
   );
-
   useEffect(() => {
     if (graph.nodes.length === 0) {
       previousKey.current = "";
@@ -122,9 +137,9 @@ function PaneInner({
     }
     if (layoutKey === previousKey.current) return;
     const frame = requestAnimationFrame(() => {
-      void fitView({ padding: 0.1, maxZoom: 1, duration: 0 }).then(() => {
+      void fitView({ padding: 0.12, maxZoom: 1, duration: 0 }).then(() => {
         const viewport = getViewport();
-        void setViewport({ x: viewport.x, y: 36, zoom: viewport.zoom }, { duration: 200 });
+        void setViewport({ x: viewport.x, y: 40, zoom: viewport.zoom }, { duration: 200 });
       });
     });
     previousKey.current = layoutKey;
@@ -132,11 +147,12 @@ function PaneInner({
   }, [fitView, getViewport, graph.nodes.length, layoutKey, setViewport]);
 
   return (
-    <section className="relative flex min-h-0 min-w-0 flex-1 flex-col">
-      <div className="flex min-h-9 shrink-0 flex-col justify-center gap-0.5 border-b border-line px-4 py-2">
-        <h2 className="text-[11px] font-medium uppercase tracking-[0.16em] text-muted">
+    <section className="relative flex min-h-0 min-w-0 flex-1 flex-col bg-[#f9fafb]">
+      <div className="flex min-h-12 shrink-0 flex-col justify-center gap-0.5 border-b border-line bg-white px-4 py-2.5">
+        <h2 className="text-[11px] font-semibold uppercase tracking-[0.14em] text-ink">
           {title}
         </h2>
+        {subtitle ? <p className="text-[12px] text-muted">{subtitle}</p> : null}
       </div>
       <div className="relative min-h-0 flex-1">
         {graph.nodes.length === 0 ? (
@@ -174,11 +190,12 @@ function PaneInner({
         >
           <Background
             variant={BackgroundVariant.Dots}
-            gap={22}
-            size={1}
-            color="#d4c8b8"
+            gap={20}
+            size={1.2}
+            color="#d1d5db"
           />
-          <Controls showInteractive={false} />
+          <Controls showInteractive={false} position="bottom-left" />
+          <ZoomBadge />
           {collab ? <PresenceCursors pane={pane} /> : null}
         </ReactFlow>
       </div>
@@ -189,6 +206,7 @@ function PaneInner({
 export function ArchitecturePane(props: {
   pane: "asIs" | "toBe";
   title: string;
+  subtitle?: string;
   graph: Graph;
   selectable: boolean;
   selectedId: string | null;
