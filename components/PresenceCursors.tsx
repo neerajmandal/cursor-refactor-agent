@@ -14,7 +14,7 @@ export function PresenceCursors({ pane }: { pane: "asIs" | "toBe" }) {
         if (!cursor || cursor.pane !== pane) return null;
         const left = cursor.x * viewport.zoom + viewport.x;
         const top = cursor.y * viewport.zoom + viewport.y;
-        const color = other.info?.color || other.presence.color || "#c45c26";
+        const color = other.info?.color || other.presence.color || "#5b9cf6";
         const name = other.info?.name || other.presence.name || "Guest";
         return (
           <div

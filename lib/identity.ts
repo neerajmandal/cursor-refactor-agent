@@ -1,4 +1,4 @@
-const COLORS = ["#c45c26", "#2f6f4e", "#3d5a80", "#8b3a62", "#4a6fa5", "#7a4e1d"];
+const COLORS = ["#5b9cf6", "#66c98d", "#b48cff", "#f47b7b", "#65c7d0", "#e1a85a"];
 const NAME_KEY = "cural:name";
 const ID_KEY = "cural:user-id";
 const COLOR_KEY = "cural:color";
