@@ -19,11 +19,13 @@ export function SpecPanel({
   spec,
   onSave,
   onClose,
+  readOnly = false,
 }: {
   title: string;
   spec: unknown;
   onSave: (spec: ComponentSpec) => void;
   onClose: () => void;
+  readOnly?: boolean;
 }) {
   const saved = parseSpec(spec);
   const [editing, setEditing] = useState(false);
@@ -64,7 +66,7 @@ export function SpecPanel({
               Save
             </button>
           </>
-        ) : (
+        ) : !readOnly ? (
           <button
             type="button"
             onClick={() => setEditing(true)}
@@ -72,7 +74,7 @@ export function SpecPanel({
           >
             Edit
           </button>
-        )}
+        ) : null}
         <button
           type="button"
           onClick={onClose}

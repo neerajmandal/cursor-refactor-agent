@@ -13,6 +13,7 @@ export async function GET(
     const runId = url.searchParams.get("runId");
     const componentIds = url.searchParams.get("componentIds");
     const componentsRaw = url.searchParams.get("components");
+    const kindRaw = url.searchParams.get("kind");
     if (!runId) {
       return NextResponse.json({ error: "runId is required" }, { status: 400 });
     }
@@ -28,6 +29,10 @@ export async function GET(
       runId,
       componentIds: componentIds ? componentIds.split(",").filter(Boolean) : undefined,
       components,
+      kind:
+        kindRaw === "execute" || kindRaw === "evaluate"
+          ? kindRaw
+          : "analyze",
     });
     return NextResponse.json(result);
   } catch (error) {

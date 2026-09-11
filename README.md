@@ -1,36 +1,105 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Cural
 
-## Getting Started
+Cural is a collaborative migration workspace for proving behavioral feature
+parity between a legacy application and its refactored replacement.
 
-First, run the development server:
+The workflow is:
+
+1. A Cursor cloud agent maps the legacy request path and discovers one
+   source-backed end-user journey.
+2. The same agent proposes a target architecture and component specifications.
+3. The team edits the journey and specs. Clicking Execute validates and freezes
+   that exact migration snapshot.
+4. A coordinator delegates each frozen component spec to a named subagent and
+   opens a target-repository pull request.
+5. A separate cloud evaluation run executes the frozen journey against both
+   applications. Cural shows `Parity proven` only when every required check
+   passes.
+
+## Artifact model
+
+- **Architecture overview** — a deliberately small communication diagram, not
+  an exhaustive inventory.
+- **Journey** — actor, preconditions, semantic steps, observable outcomes,
+  fixtures, normalization rules, linked components, and source evidence.
+- **Approval snapshot** — immutable copies of both diagrams, all specs, and all
+  journeys used by execution and evaluation.
+- **Work item** — per-component attempt, frozen spec, status, summary, and
+  dependencies.
+- **Evaluation report** — normalized legacy/target observations and evidence for
+  each required journey.
+
+## Local setup
 
 ```bash
+cp .env.example .env.local
+npm install
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Required server credentials:
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+```dotenv
+CURSOR_API_KEY=cursor_...
+LIVEBLOCKS_SECRET_KEY=sk_...
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+The setup page accepts optional pinned revisions, legacy/target base URLs, and a
+fixture/reset command. Provide them for reproducible parity runs. If URLs are
+omitted, the evaluation agent must start both repositories using their
+documented commands.
 
-## Learn More
+## Behavioral parity contract
 
-To learn more about Next.js, take a look at the following resources:
+Characterization captures what the legacy app does. End-to-end acceptance
+checks exercise frozen user journeys. Differential comparison determines
+whether normalized, user-observable outcomes match.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+Normalization is explicit and reviewable:
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+- `omit:requestId` removes a named volatile object field.
+- `pattern => replacement` normalizes matching text.
+- Semantic mismatches must never be normalized away.
 
-## Deploy on Vercel
+The deterministic harness is the oracle. Agents provision, execute, diagnose,
+and repair it; they do not subjectively declare two apps equivalent.
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+Implementation runs must finish with:
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+```text
+CURAL_EXECUTION_REPORT
+```
+
+followed by the fenced JSON contract defined in `lib/prompts.ts`. Evaluation
+runs use `CURAL_EVALUATION_REPORT`. Missing or malformed reports are failures;
+a finished cloud run alone never means the migration succeeded.
+
+## Scripted proof
+
+Open [http://localhost:3000/preview](http://localhost:3000/preview), approve the
+sample plan, and execute it. The scripted preview walks through execution,
+evaluation, and the parity evidence surface without consuming cloud-agent
+credits.
+
+The real board starts at [http://localhost:3000](http://localhost:3000).
+
+## Verification
+
+```bash
+npm run lint
+npm test
+npm run build
+npm run test:e2e
+```
+
+Unit tests cover journey extraction, execution validation, strict agent reports,
+and observable normalization. The browser test proves that the UI cannot reach
+its final state before the parity report passes.
+
+## Current trust boundary
+
+This repository is a proof, not a multi-tenant deployment. Board setup is
+persisted in Liveblocks before navigation and agent starts use shared room
+claims, but the app still grants room access to anyone holding a board URL.
+Add organization authentication, role-based execution controls, API rate limits, audit
+logs, and durable operational storage before wider team deployment.

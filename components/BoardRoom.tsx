@@ -1,6 +1,4 @@
 "use client";
-
-import { useMemo } from "react";
 import {
   ClientSideSuspense,
   LiveblocksProvider,
@@ -8,20 +6,8 @@ import {
 } from "@liveblocks/react/suspense";
 import { Board } from "@/components/Board";
 import { BoardErrorBoundary, BoardFallback } from "@/components/BoardFallback";
-import { setupStorageKey, type Identity } from "@/lib/identity";
-import type { BoardSetup } from "@/lib/types";
-import { EMPTY_GRAPH } from "@/lib/types";
-
-function readSetup(boardId: string): BoardSetup | null {
-  if (typeof window === "undefined") return null;
-  const raw = sessionStorage.getItem(setupStorageKey(boardId));
-  if (!raw) return null;
-  try {
-    return JSON.parse(raw) as BoardSetup;
-  } catch {
-    return null;
-  }
-}
+import type { Identity } from "@/lib/identity";
+import { createInitialBoardStorage } from "@/lib/types";
 
 export function BoardRoom({
   boardId,
@@ -30,8 +16,6 @@ export function BoardRoom({
   boardId: string;
   identity: Identity;
 }) {
-  const setup = useMemo(() => readSetup(boardId), [boardId]);
-
   return (
     <BoardErrorBoundary>
       <LiveblocksProvider
@@ -60,21 +44,7 @@ export function BoardRoom({
             name: identity.name,
             color: identity.color,
           }}
-          initialStorage={{
-            envName: setup?.envName ?? "",
-            legacyRepo: setup?.legacyRepo ?? "",
-            targetRepo: setup?.targetRepo ?? "",
-            prompt: setup?.prompt ?? "",
-            phase: "analyzing_current",
-            asIs: EMPTY_GRAPH,
-            toBe: EMPTY_GRAPH,
-            analyzeAgentId: "",
-            analyzeRunId: "",
-            executeAgentId: "",
-            executeRunId: "",
-            nodeStatus: {},
-            error: "",
-          }}
+          initialStorage={createInitialBoardStorage()}
         >
           <ClientSideSuspense fallback={<BoardFallback />}>
             <Board />

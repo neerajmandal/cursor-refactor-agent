@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { startAnalyze } from "@/lib/cursor";
+import type { Journey } from "@/lib/types";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -10,10 +11,13 @@ export async function POST(request: Request) {
       phase?: "as-is" | "to-be";
       envName?: string;
       legacyRepo?: string;
+      legacyRef?: string;
       targetRepo?: string;
       prompt?: string;
+      journeys?: Journey[];
       agentId?: string;
       regenerate?: boolean;
+      requestKey?: string;
     };
     if (!body.legacyRepo || !body.phase) {
       return NextResponse.json(
@@ -25,10 +29,13 @@ export async function POST(request: Request) {
       phase: body.phase,
       envName: body.envName ?? "",
       legacyRepo: body.legacyRepo,
+      legacyRef: body.legacyRef ?? "",
       targetRepo: body.targetRepo ?? "",
       prompt: body.prompt ?? "",
+      journeys: body.journeys ?? [],
       agentId: body.agentId,
       regenerate: body.regenerate,
+      requestKey: body.requestKey,
     });
     return NextResponse.json(result);
   } catch (error) {

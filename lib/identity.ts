@@ -41,7 +41,3 @@ export function writeIdentity(name: string): Identity {
   window.localStorage.setItem(COLOR_KEY, color);
   return { id, name: trimmed, color };
 }
-
-export function setupStorageKey(boardId: string): string {
-  return `cural:setup:${boardId}`;
-}

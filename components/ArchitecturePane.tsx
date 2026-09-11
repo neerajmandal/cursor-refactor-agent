@@ -33,11 +33,12 @@ function graphToFlow(
   nodeStatus: Record<string, NodeStatus>,
   selectedId: string | null,
 ): { nodes: ComponentFlowNode[]; edges: Edge[] } {
-  const tree = layoutGraph({
-    caption: graph.caption,
-    nodes: graph.nodes.map(({ x: _x, y: _y, ...node }) => node),
-    edges: graph.edges,
-  });
+  const tree = layoutGraph(graph);
+  const storedPositions = new Map(
+    graph.nodes
+      .filter((node) => Number.isFinite(node.x) && Number.isFinite(node.y))
+      .map((node) => [node.id, { x: node.x!, y: node.y! }]),
+  );
   const childCount = new Map<string, number>();
   for (const edge of tree.edges) {
     childCount.set(edge.from, (childCount.get(edge.from) ?? 0) + 1);
@@ -54,7 +55,7 @@ function graphToFlow(
     nodes: tree.nodes.map((node) => ({
       id: node.id,
       type: "component" as const,
-      position: { x: node.x ?? 0, y: node.y ?? 0 },
+      position: storedPositions.get(node.id) ?? { x: node.x ?? 0, y: node.y ?? 0 },
       sourcePosition: Position.Bottom,
       targetPosition: Position.Top,
       selected: node.id === selectedId,
@@ -136,11 +137,6 @@ function PaneInner({
         <h2 className="text-[11px] font-medium uppercase tracking-[0.16em] text-muted">
           {title}
         </h2>
-        {graph.caption ? (
-          <p className="line-clamp-2 text-[13px] leading-5 text-ink" title={graph.caption}>
-            {graph.caption}
-          </p>
-        ) : null}
       </div>
       <div className="relative min-h-0 flex-1">
         {graph.nodes.length === 0 ? (
@@ -152,7 +148,7 @@ function PaneInner({
           nodes={nodes}
           edges={edges}
           nodeTypes={nodeTypes}
-          nodesDraggable={false}
+          nodesDraggable
           nodesConnectable={false}
           elementsSelectable={selectable}
           panOnScroll

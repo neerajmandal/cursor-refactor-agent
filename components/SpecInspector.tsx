@@ -5,14 +5,18 @@ import { SpecPanel } from "@/components/SpecPanel";
 import type { ComponentSpec } from "@/lib/spec";
 
 export function SpecInspector({
+  pane,
   selectedId,
   onClose,
+  locked = false,
 }: {
+  pane: "asIs" | "toBe";
   selectedId: string | null;
   onClose: () => void;
+  locked?: boolean;
 }) {
   const node = useStorage((root) =>
-    selectedId ? root.toBe.nodes.find((item) => item.id === selectedId) : null,
+    selectedId ? root[pane].nodes.find((item) => item.id === selectedId) : null,
   );
   const saveSpec = useMutation(
     ({ storage }, id: string, spec: ComponentSpec) => {
@@ -23,6 +27,9 @@ export function SpecInspector({
           item.id === id ? { ...item, spec } : item,
         ),
       });
+      storage.set("executionSnapshot", null);
+      storage.set("evaluationReport", null);
+      storage.set("phase", "aligning");
     },
     [],
   );
@@ -36,6 +43,7 @@ export function SpecInspector({
       spec={node.spec}
       onSave={(spec) => saveSpec(node.id, spec)}
       onClose={onClose}
+      readOnly={pane === "asIs" || locked}
     />
   );
 }

@@ -1,44 +1,112 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useRef, useState } from "react";
-import { useMutation, useOthers, useRoom, useStorage, useUpdateMyPresence } from "@liveblocks/react/suspense";
-import { ArchitecturePane } from "@/components/ArchitecturePane";
+import { useCallback, useEffect, useState } from "react";
+import {
+  useMutation,
+  useOthers,
+  useRoom,
+  useStorage,
+  useUpdateMyPresence,
+} from "@liveblocks/react/suspense";
 import { AgentIdLink } from "@/components/AgentIdLink";
+import { ArchitecturePane } from "@/components/ArchitecturePane";
+import { EvidencePanel } from "@/components/EvidencePanel";
 import { SpecInspector } from "@/components/SpecInspector";
+import {
+  createMigrationSnapshot,
+  reconcileJourneyComponents,
+  validateAlignment,
+  workItemsFromSnapshot,
+} from "@/lib/journey";
 import {
   EMPTY_GRAPH,
   PHASE_LABEL,
   isCloudAgentId,
   type BoardStorage,
+  type EvaluationReport,
+  type ExecutionReport,
   type Graph,
+  type Journey,
+  type MigrationSnapshot,
   type NodeStatus,
-  type Phase,
+  type RunBranch,
+  type WorkItem,
 } from "@/lib/types";
 
+type View = "architecture" | "evidence";
 type AnalyzeResponse = { agentId?: string; runId?: string; error?: string };
 type PollResponse = {
   status?: string;
   graph?: Graph;
+  journeys?: Journey[];
   error?: string;
   nodeStatus?: Record<string, NodeStatus>;
+  executionReport?: ExecutionReport;
+  evaluationReport?: EvaluationReport;
+  branches?: RunBranch[];
 };
 
-function asNodeStatus(value: Record<string, unknown> | null | undefined): Record<string, NodeStatus> {
+function asNodeStatus(
+  value: Record<string, unknown> | null | undefined,
+): Record<string, NodeStatus> {
   const next: Record<string, NodeStatus> = {};
   if (!value) return next;
   for (const [key, item] of Object.entries(value)) {
-    if (item === "pending" || item === "running" || item === "done" || item === "error") {
+    if (
+      item === "pending" ||
+      item === "running" ||
+      item === "done" ||
+      item === "error"
+    ) {
       next[key] = item;
     }
   }
   return next;
 }
 
+function mergeBranches(current: RunBranch[], incoming: RunBranch[] = []): RunBranch[] {
+  const keyed = new Map(
+    [...current, ...incoming].map((branch) => [
+      `${branch.repoUrl}:${branch.branch ?? ""}:${branch.prUrl ?? ""}`,
+      branch,
+    ]),
+  );
+  return [...keyed.values()];
+}
+
+function mergeWorkItems(
+  current: Record<string, WorkItem>,
+  statuses?: Record<string, NodeStatus>,
+  report?: ExecutionReport,
+  branches?: RunBranch[],
+): Record<string, WorkItem> {
+  const next = { ...current };
+  for (const [id, status] of Object.entries(statuses ?? {})) {
+    const item = next[id];
+    if (item) next[id] = { ...item, status };
+  }
+  for (const result of report?.components ?? []) {
+    const item = next[result.id];
+    if (item) {
+      next[result.id] = {
+        ...item,
+        status: result.status === "done" ? "done" : "error",
+        summary: result.summary,
+        branches: mergeBranches(item.branches, branches),
+      };
+    }
+  }
+  return next;
+}
+
 export function Board() {
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [view, setView] = useState<View>("architecture");
+  const [selected, setSelected] = useState<{
+    pane: "asIs" | "toBe";
+    id: string;
+  } | null>(null);
   const [copied, setCopied] = useState(false);
-  const starting = useRef(false);
   const others = useOthers();
   const room = useRoom();
   const updateMyPresence = useUpdateMyPresence();
@@ -46,23 +114,41 @@ export function Board() {
   const envName = useStorage((root) => root.envName);
   const legacyRepo = useStorage((root) => root.legacyRepo);
   const targetRepo = useStorage((root) => root.targetRepo);
+  const legacyRef = useStorage((root) => root.legacyRef ?? "");
+  const targetRef = useStorage((root) => root.targetRef ?? "");
   const prompt = useStorage((root) => root.prompt);
+  const legacyBaseUrl = useStorage((root) => root.legacyBaseUrl ?? "");
+  const targetBaseUrl = useStorage((root) => root.targetBaseUrl ?? "");
+  const fixtureCommand = useStorage((root) => root.fixtureCommand ?? "");
   const phase = useStorage((root) => root.phase);
   const asIs = useStorage((root) => root.asIs);
   const toBe = useStorage((root) => root.toBe);
+  const journeys = useStorage((root) => root.journeys ?? []);
+  const architectureVersion = useStorage((root) => root.architectureVersion ?? 0);
+  const executionSnapshot = useStorage((root) => root.executionSnapshot ?? null);
   const analyzeAgentId = useStorage((root) => root.analyzeAgentId);
   const analyzeRunId = useStorage((root) => root.analyzeRunId);
   const executeAgentId = useStorage((root) => root.executeAgentId);
   const executeRunId = useStorage((root) => root.executeRunId);
-  const nodeStatus = useStorage((root) => root.nodeStatus);
+  const evaluationAgentId = useStorage((root) => root.evaluationAgentId ?? "");
+  const evaluationRunId = useStorage((root) => root.evaluationRunId ?? "");
+  const activeComponentIds = useStorage((root) => root.activeComponentIds ?? []);
+  const nodeStatus = useStorage((root) => root.nodeStatus) as unknown as Record<
+    string,
+    NodeStatus
+  >;
+  const workItems = useStorage((root) => root.workItems ?? {}) as unknown as Record<
+    string,
+    WorkItem
+  >;
+  const evaluationReport = useStorage((root) => root.evaluationReport ?? null);
+  const runBranches = useStorage((root) => root.runBranches ?? []);
   const error = useStorage((root) => root.error);
 
   const patch = useMutation(({ storage }, values: Partial<BoardStorage>) => {
     (Object.keys(values) as (keyof BoardStorage)[]).forEach((key) => {
       const value = values[key];
-      if (value !== undefined) {
-        storage.set(key, value as never);
-      }
+      if (value !== undefined) storage.set(key, value as never);
     });
   }, []);
 
@@ -75,22 +161,112 @@ export function Board() {
           node.id === id ? { ...node, x, y } : node,
         ),
       });
+      if (pane === "toBe") {
+        storage.set("executionSnapshot", null);
+        storage.set("phase", "aligning");
+      }
     },
     [],
   );
 
-  const startAsIs = useCallback(async (options?: {
-    resumeAgentId?: string;
-    regenerate?: boolean;
-  }) => {
-    if (starting.current || !legacyRepo) return;
-    if (!options?.regenerate && analyzeAgentId) return;
-    const lockKey = `cural:analyze:${room.id}`;
-    if (!options?.regenerate && sessionStorage.getItem(lockKey)) return;
-    sessionStorage.setItem(lockKey, "1");
-    starting.current = true;
-    const resumeId = options?.resumeAgentId;
-    patch({ analyzeAgentId: resumeId || "pending", error: "" });
+  const claimAnalyze = useMutation(
+    ({ storage }, requestedPhase: "analyzing_current" | "analyzing_target") => {
+      if (storage.get("phase") !== requestedPhase || storage.get("analyzeRunId")) {
+        return false;
+      }
+      storage.set("analyzeRunId", "pending");
+      if (requestedPhase === "analyzing_current" && !storage.get("analyzeAgentId")) {
+        storage.set("analyzeAgentId", "pending");
+      }
+      storage.set("error", "");
+      return true;
+    },
+    [],
+  );
+
+  const claimExecute = useMutation(({ storage }, snapshot: MigrationSnapshot) => {
+    if (
+      storage.get("phase") !== "aligning" ||
+      storage.get("executeRunId")
+    ) {
+      return null;
+    }
+    const previousSnapshot = storage.get("executionSnapshot");
+    const previous =
+      previousSnapshot?.id === snapshot.id
+        ? ((storage.get("workItems") ?? {}) as Record<string, WorkItem>)
+        : {};
+    const componentIds = Object.keys(previous).length
+      ? Object.values(previous)
+          .filter((item) => item.status !== "done")
+          .map((item) => item.componentId)
+      : snapshot.toBe.nodes.map((node) => node.id);
+    if (!componentIds.length) return null;
+    const selected = new Set(componentIds);
+    const runSnapshot: MigrationSnapshot = {
+      ...snapshot,
+      toBe: {
+        ...snapshot.toBe,
+        nodes: snapshot.toBe.nodes.filter((node) => selected.has(node.id)),
+        edges: snapshot.toBe.edges.filter(
+          (edge) => selected.has(edge.from) && selected.has(edge.to),
+        ),
+      },
+    };
+    const items = workItemsFromSnapshot(
+      snapshot,
+      previous,
+      componentIds,
+    );
+    storage.set("phase", "executing");
+    storage.set("executionSnapshot", snapshot);
+    storage.set("executeAgentId", "pending");
+    storage.set("executeRunId", "pending");
+    storage.set("executionReport", null);
+    storage.set("evaluationReport", null);
+    storage.set("activeComponentIds", componentIds);
+    storage.set("nodeStatus", Object.fromEntries(
+      snapshot.toBe.nodes.map((node) => [node.id, "pending" as const]),
+    ));
+    storage.set("workItems", items);
+    storage.set("error", "");
+    return runSnapshot;
+  }, []);
+
+  const claimEvaluation = useMutation(({ storage }) => {
+    if (
+      storage.get("phase") !== "evaluating" ||
+      storage.get("evaluationRunId") ||
+      !storage.get("executionSnapshot")
+    ) {
+      return null;
+    }
+    storage.set("evaluationAgentId", "pending");
+    storage.set("evaluationRunId", "pending");
+    storage.set("error", "");
+    return storage.get("executionSnapshot");
+  }, []);
+
+  const attachExecutionRun = useMutation(
+    ({ storage }, agentId: string, runId: string) => {
+      const active = new Set(storage.get("activeComponentIds") ?? []);
+      const current = (storage.get("workItems") ?? {}) as Record<string, WorkItem>;
+      storage.set(
+        "workItems",
+        Object.fromEntries(
+          Object.entries(current).map(([id, item]) => [
+            id,
+            active.has(id) ? { ...item, agentId, runId } : item,
+          ]),
+        ),
+      );
+    },
+    [],
+  );
+
+  const startAsIs = useCallback(async () => {
+    if (!legacyRepo || !claimAnalyze("analyzing_current")) return;
+    const resumeId = isCloudAgentId(analyzeAgentId) ? analyzeAgentId : undefined;
     try {
       const response = await fetch("/api/analyze", {
         method: "POST",
@@ -99,35 +275,40 @@ export function Board() {
           phase: "as-is",
           envName,
           legacyRepo,
+          legacyRef,
           targetRepo,
           prompt,
-          agentId: resumeId || undefined,
-          regenerate: Boolean(options?.regenerate),
+          agentId: resumeId,
+          requestKey: `${room.id}:as-is:${architectureVersion + 1}`,
         }),
       });
       const data = (await response.json()) as AnalyzeResponse;
       if (!response.ok || !data.agentId || !data.runId) {
-        throw new Error(data.error || "Failed to start as-is analysis");
+        throw new Error(data.error || "Failed to start current-state analysis");
       }
       patch({ analyzeAgentId: data.agentId, analyzeRunId: data.runId });
-    } catch (err) {
-      starting.current = false;
-      sessionStorage.removeItem(`cural:analyze:${room.id}`);
+    } catch (caught) {
       patch({
-        analyzeAgentId: resumeId || "",
-        error: err instanceof Error ? err.message : "Analyze failed",
-        ...(options?.regenerate ? { phase: "aligning" satisfies Phase } : {}),
+        analyzeAgentId: resumeId ?? "",
+        analyzeRunId: "",
+        error: caught instanceof Error ? caught.message : "Analyze failed",
       });
     }
-  }, [analyzeAgentId, envName, legacyRepo, patch, prompt, room.id, targetRepo]);
+  }, [
+    analyzeAgentId,
+    architectureVersion,
+    claimAnalyze,
+    envName,
+    legacyRepo,
+    legacyRef,
+    patch,
+    prompt,
+    room.id,
+    targetRepo,
+  ]);
 
   const startToBe = useCallback(async () => {
-    if (starting.current || !analyzeAgentId || analyzeAgentId === "pending") return;
-    const lockKey = `cural:target:${room.id}`;
-    if (sessionStorage.getItem(lockKey)) return;
-    sessionStorage.setItem(lockKey, "1");
-    starting.current = true;
-    patch({ error: "" });
+    if (!isCloudAgentId(analyzeAgentId) || !claimAnalyze("analyzing_target")) return;
     try {
       const response = await fetch("/api/analyze", {
         method: "POST",
@@ -136,9 +317,12 @@ export function Board() {
           phase: "to-be",
           envName,
           legacyRepo,
+          legacyRef,
           targetRepo,
           prompt,
+          journeys,
           agentId: analyzeAgentId,
+          requestKey: `${room.id}:to-be:${architectureVersion + 1}`,
         }),
       });
       const data = (await response.json()) as AnalyzeResponse;
@@ -146,73 +330,112 @@ export function Board() {
         throw new Error(data.error || "Failed to start target analysis");
       }
       patch({ analyzeAgentId: data.agentId, analyzeRunId: data.runId });
-    } catch (err) {
-      starting.current = false;
-      sessionStorage.removeItem(`cural:target:${room.id}`);
+    } catch (caught) {
       patch({
-        error: err instanceof Error ? err.message : "Target analysis failed",
+        analyzeRunId: "",
+        error: caught instanceof Error ? caught.message : "Target analysis failed",
       });
     }
-  }, [analyzeAgentId, envName, legacyRepo, patch, prompt, room.id, targetRepo]);
+  }, [
+    analyzeAgentId,
+    architectureVersion,
+    claimAnalyze,
+    envName,
+    legacyRepo,
+    legacyRef,
+    journeys,
+    patch,
+    prompt,
+    room.id,
+    targetRepo,
+  ]);
 
   useEffect(() => {
-    if (phase === "analyzing_current" && !analyzeAgentId && legacyRepo) {
+    if (phase === "analyzing_current" && !analyzeRunId && legacyRepo && !error) {
       void startAsIs();
     }
-  }, [analyzeAgentId, legacyRepo, phase, startAsIs]);
-
-  useEffect(() => {
     if (
       phase === "analyzing_target" &&
-      analyzeAgentId &&
-      analyzeAgentId !== "pending" &&
-      !analyzeRunId
+      !analyzeRunId &&
+      isCloudAgentId(analyzeAgentId) &&
+      !error
     ) {
       void startToBe();
     }
-  }, [analyzeAgentId, analyzeRunId, phase, startToBe]);
+  }, [
+    analyzeAgentId,
+    analyzeRunId,
+    error,
+    legacyRepo,
+    phase,
+    startAsIs,
+    startToBe,
+  ]);
 
   useEffect(() => {
-    if (!analyzeAgentId || analyzeAgentId === "pending" || !analyzeRunId) return;
-    if (phase !== "analyzing_current" && phase !== "analyzing_target") return;
-
+    if (
+      !isCloudAgentId(analyzeAgentId) ||
+      !analyzeRunId ||
+      analyzeRunId === "pending" ||
+      (phase !== "analyzing_current" && phase !== "analyzing_target")
+    ) {
+      return;
+    }
     let cancelled = false;
+    let inFlight = false;
 
     async function poll() {
-      const response = await fetch(
-        `/api/agents/${analyzeAgentId}?runId=${encodeURIComponent(analyzeRunId)}`,
-      );
-      const data = (await response.json()) as PollResponse;
-      if (cancelled) return;
-      if (!response.ok) {
-        patch({ error: data.error || "Poll failed" });
-        return;
-      }
-      if (data.status === "running") return;
-      if (data.status === "error" || data.status === "cancelled") {
-        starting.current = false;
-        patch({ error: data.error || `Run ${data.status}` });
-        return;
-      }
-      if (!data.graph) {
-        starting.current = false;
-        patch({ error: data.error || "No architecture JSON from agent" });
-        return;
-      }
-      starting.current = false;
-      if (phase === "analyzing_current") {
-        patch({
-          asIs: data.graph,
-          phase: "analyzing_target" satisfies Phase,
-          analyzeRunId: "",
-          error: "",
-        });
-      } else {
-        patch({
-          toBe: data.graph,
-          phase: "aligning" satisfies Phase,
-          error: "",
-        });
+      if (inFlight) return;
+      inFlight = true;
+      try {
+        const response = await fetch(
+          `/api/agents/${analyzeAgentId}?kind=analyze&runId=${encodeURIComponent(analyzeRunId)}`,
+        );
+        const data = (await response.json()) as PollResponse;
+        if (cancelled) return;
+        if (!response.ok || data.status === "error" || data.status === "cancelled") {
+          patch({ error: data.error || "Analysis failed" });
+          return;
+        }
+        if (data.status === "running") {
+          patch({ error: "" });
+          return;
+        }
+        if (!data.graph) {
+          patch({ error: "No architecture JSON from agent" });
+          return;
+        }
+        if (phase === "analyzing_current") {
+          patch({
+            asIs: data.graph,
+            journeys: data.journeys?.length ? data.journeys : journeys,
+            architectureVersion: architectureVersion + 1,
+            phase: "analyzing_target",
+            analyzeRunId: "",
+            error: "",
+          });
+        } else {
+          const targetJourneys = reconcileJourneyComponents(
+            asIs,
+            data.graph,
+            data.journeys?.length ? data.journeys : journeys,
+          );
+          patch({
+            toBe: data.graph,
+            journeys: targetJourneys,
+            architectureVersion: architectureVersion + 1,
+            phase: "aligning",
+            analyzeRunId: "",
+            executionSnapshot: null,
+            error: "",
+          });
+        }
+      } catch (caught) {
+        if (!cancelled) {
+          patch({ error: caught instanceof Error ? caught.message : "Poll failed" });
+        }
+      } finally {
+        inFlight = false;
       }
     }
 
@@ -222,66 +445,257 @@ export function Board() {
       cancelled = true;
       window.clearInterval(interval);
     };
-  }, [analyzeAgentId, analyzeRunId, patch, phase]);
+  }, [
+    analyzeAgentId,
+    analyzeRunId,
+    architectureVersion,
+    asIs,
+    journeys,
+    patch,
+    phase,
+  ]);
 
   useEffect(() => {
-    if (phase !== "executing" || !executeAgentId || !executeRunId) return;
+    if (
+      phase !== "executing" ||
+      !isCloudAgentId(executeAgentId) ||
+      !executeRunId ||
+      executeRunId === "pending"
+    ) {
+      return;
+    }
     let cancelled = false;
-    const components = toBe.nodes
+    let inFlight = false;
+    const active = new Set(activeComponentIds);
+    const components = executionSnapshot?.toBe.nodes
+      .filter((node) => active.has(node.id))
       .map((node) => `${node.id}|${node.label}`)
-      .join(",");
+      .join(",") ?? "";
 
     async function poll() {
-      const response = await fetch(
-        `/api/agents/${executeAgentId}?runId=${encodeURIComponent(executeRunId)}&components=${encodeURIComponent(components)}`,
-      );
-      const data = (await response.json()) as PollResponse;
-      if (cancelled) return;
-      if (data.nodeStatus) {
-        const values = Object.values(data.nodeStatus);
-        if (
-          data.status === "running" &&
-          values.length > 0 &&
-          values.every((value) => value === "pending") &&
-          toBe.nodes[0]
-        ) {
-          data.nodeStatus[toBe.nodes[0].id] = "running";
-        }
-        patch({ nodeStatus: data.nodeStatus });
-      }
-      if (data.status === "running") return;
-      starting.current = false;
-      if (data.status === "error" || data.status === "cancelled") {
+      if (inFlight) return;
+      inFlight = true;
+      try {
+        const response = await fetch(
+          `/api/agents/${executeAgentId}?kind=execute&runId=${encodeURIComponent(executeRunId)}&components=${encodeURIComponent(components)}`,
+        );
+        const data = (await response.json()) as PollResponse;
+        if (cancelled) return;
+        const nextItems = mergeWorkItems(
+          workItems,
+          data.nodeStatus,
+          data.executionReport,
+          data.branches,
+        );
         patch({
-          phase: "aligning" satisfies Phase,
-          error: data.error || `Execute ${data.status}`,
+          nodeStatus: data.nodeStatus ?? nodeStatus,
+          workItems: nextItems,
+          executionReport: data.executionReport ?? undefined,
+          runBranches: mergeBranches(runBranches, data.branches),
+          error: data.status === "running" ? "" : undefined,
         });
-        return;
+        if (data.status === "running") {
+          patch({ error: "" });
+          return;
+        }
+        if (
+          !response.ok ||
+          data.status === "error" ||
+          data.status === "cancelled" ||
+          data.executionReport?.status !== "passed"
+        ) {
+          patch({
+            phase: "aligning",
+            executeAgentId: "",
+            executeRunId: "",
+            error: data.error || "Component execution did not complete",
+          });
+          return;
+        }
+        const allDone = Object.values(nextItems).every(
+          (item) => item.status === "done",
+        );
+        patch({
+          phase: "evaluating",
+          evaluationAgentId: "",
+          evaluationRunId: "",
+          error: "",
+        });
+        if (!allDone) {
+          patch({
+            phase: "aligning",
+            executeAgentId: "",
+            executeRunId: "",
+            error: "Some components still need an execution attempt",
+          });
+          return;
+        }
+        setView("evidence");
+      } catch (caught) {
+        if (!cancelled) {
+          patch({ error: caught instanceof Error ? caught.message : "Poll failed" });
+        }
+      } finally {
+        inFlight = false;
       }
-      patch({ phase: "done" satisfies Phase, error: "" });
     }
 
     void poll();
-    const interval = window.setInterval(() => void poll(), 2000);
+    const interval = window.setInterval(() => void poll(), 2500);
     return () => {
       cancelled = true;
       window.clearInterval(interval);
     };
-  }, [executeAgentId, executeRunId, patch, phase, toBe.nodes]);
+  }, [
+    executionSnapshot,
+    activeComponentIds,
+    executeAgentId,
+    executeRunId,
+    nodeStatus,
+    patch,
+    phase,
+    runBranches,
+    workItems,
+  ]);
 
-  async function onExecute() {
-    if (phase !== "aligning" && phase !== "done") return;
-    if (!toBe.nodes.length) return;
-    starting.current = true;
-    const pending = Object.fromEntries(
-      toBe.nodes.map((node) => [node.id, "pending" as const]),
-    );
-    patch({
-      phase: "executing" satisfies Phase,
-      nodeStatus: pending,
-      error: "",
-      executeAgentId: "pending",
+  const startEvaluation = useCallback(async () => {
+    const snapshot = claimEvaluation();
+    if (!snapshot) return;
+    try {
+      const response = await fetch("/api/evaluate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          envName,
+          legacyRepo,
+          legacyRef,
+          targetRepo,
+          targetRef,
+          legacyBaseUrl,
+          targetBaseUrl,
+          fixtureCommand,
+          snapshot,
+          requestKey: `${room.id}:evaluate:${snapshot.id}`,
+        }),
+      });
+      const data = (await response.json()) as AnalyzeResponse;
+      if (!response.ok || !data.agentId || !data.runId) {
+        throw new Error(data.error || "Failed to start parity evaluation");
+      }
+      patch({ evaluationAgentId: data.agentId, evaluationRunId: data.runId });
+    } catch (caught) {
+      patch({
+        evaluationAgentId: "",
+        evaluationRunId: "",
+        phase: "parity_failed",
+        error: caught instanceof Error ? caught.message : "Evaluation failed",
+      });
+    }
+  }, [
+    claimEvaluation,
+    envName,
+    fixtureCommand,
+    legacyBaseUrl,
+    legacyRepo,
+    legacyRef,
+    patch,
+    room.id,
+    targetBaseUrl,
+    targetRef,
+    targetRepo,
+  ]);
+
+  useEffect(() => {
+    if (phase === "evaluating" && !evaluationRunId && !error) {
+      void startEvaluation();
+    }
+  }, [error, evaluationRunId, phase, startEvaluation]);
+
+  useEffect(() => {
+    if (
+      phase !== "evaluating" ||
+      !isCloudAgentId(evaluationAgentId) ||
+      !evaluationRunId ||
+      evaluationRunId === "pending"
+    ) {
+      return;
+    }
+    let cancelled = false;
+    let inFlight = false;
+
+    async function poll() {
+      if (inFlight) return;
+      inFlight = true;
+      try {
+        const response = await fetch(
+          `/api/agents/${evaluationAgentId}?kind=evaluate&runId=${encodeURIComponent(evaluationRunId)}`,
+        );
+        const data = (await response.json()) as PollResponse;
+        if (cancelled) return;
+        if (data.status === "running") return;
+        const report = data.evaluationReport ?? null;
+        patch({
+          evaluationReport: report,
+          runBranches: mergeBranches(runBranches, data.branches),
+          phase:
+            response.ok && data.status === "finished" && report?.status === "passed"
+              ? "done"
+              : "parity_failed",
+          error:
+            response.ok && report
+              ? report.status === "passed"
+                ? ""
+                : report.summary || "Behavior differs from legacy"
+              : data.error || "Parity evaluation failed",
+        });
+      } catch (caught) {
+        if (!cancelled) {
+          patch({
+            phase: "parity_failed",
+            error: caught instanceof Error ? caught.message : "Poll failed",
+          });
+        }
+      } finally {
+        inFlight = false;
+      }
+    }
+
+    void poll();
+    const interval = window.setInterval(() => void poll(), 3000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+    };
+  }, [
+    evaluationAgentId,
+    evaluationRunId,
+    patch,
+    phase,
+    runBranches,
+  ]);
+
+  async function execute() {
+    const reconciledJourneys = reconcileJourneyComponents(asIs, toBe, journeys);
+    const errors = validateAlignment(toBe, reconciledJourneys);
+    if (errors.length) {
+      patch({
+        journeys: reconciledJourneys,
+        error: errors.slice(0, 3).join(" · "),
+      });
+      return;
+    }
+    const snapshot = createMigrationSnapshot({
+      asIs,
+      toBe,
+      journeys: reconciledJourneys,
+      architectureVersion,
     });
+    patch({
+      journeys: reconciledJourneys,
+      error: "",
+    });
+    const runSnapshot = claimExecute(snapshot);
+    if (!runSnapshot) return;
     try {
       const response = await fetch("/api/execute", {
         method: "POST",
@@ -289,9 +703,12 @@ export function Board() {
         body: JSON.stringify({
           envName,
           legacyRepo,
+          legacyRef,
           targetRepo,
+          targetRef,
           prompt,
-          components: toBe.nodes,
+          snapshot: runSnapshot,
+          requestKey: `${room.id}:execute:${runSnapshot.id}`,
         }),
       });
       const data = (await response.json()) as AnalyzeResponse;
@@ -299,40 +716,71 @@ export function Board() {
         throw new Error(data.error || "Failed to start execution");
       }
       patch({ executeAgentId: data.agentId, executeRunId: data.runId });
-    } catch (err) {
-      starting.current = false;
+      attachExecutionRun(data.agentId, data.runId);
+      setView("evidence");
+    } catch (caught) {
       patch({
-        phase: "aligning" satisfies Phase,
+        phase: "aligning",
         executeAgentId: "",
-        error: err instanceof Error ? err.message : "Execute failed",
+        executeRunId: "",
+        error: caught instanceof Error ? caught.message : "Execute failed",
       });
     }
   }
 
-  const canExecute =
-    (phase === "aligning" || phase === "done") && toBe.nodes.length > 0;
-  const busy =
-    phase === "analyzing_current" ||
-    phase === "analyzing_target" ||
-    phase === "executing";
-
-  async function onRegenerate() {
-    if (busy) return;
-    sessionStorage.removeItem(`cural:analyze:${room.id}`);
-    sessionStorage.removeItem(`cural:target:${room.id}`);
-    const keep = isCloudAgentId(analyzeAgentId) ? analyzeAgentId : "";
+  function retryEvaluation() {
+    if (!executionSnapshot) return;
     patch({
-      phase: "analyzing_current" satisfies Phase,
-      asIs: EMPTY_GRAPH,
-      toBe: EMPTY_GRAPH,
-      analyzeRunId: "",
-      analyzeAgentId: keep || "pending",
-      executeAgentId: "",
-      executeRunId: "",
-      nodeStatus: {},
+      phase: "evaluating",
+      evaluationAgentId: "",
+      evaluationRunId: "",
+      evaluationReport: null,
       error: "",
     });
-    void startAsIs({ resumeAgentId: keep || undefined, regenerate: true });
+    setView("evidence");
+  }
+
+  function retryAnalysis() {
+    patch({
+      analyzeRunId: "",
+      analyzeAgentId:
+        phase === "analyzing_target" && isCloudAgentId(analyzeAgentId)
+          ? analyzeAgentId
+          : "",
+      error: "",
+    });
+  }
+
+  function regenerate() {
+    if (
+      phase === "analyzing_current" ||
+      phase === "analyzing_target" ||
+      phase === "executing" ||
+      phase === "evaluating"
+    ) {
+      return;
+    }
+    patch({
+      phase: "analyzing_current",
+      asIs: EMPTY_GRAPH,
+      toBe: EMPTY_GRAPH,
+      journeys: [],
+      executionSnapshot: null,
+      analyzeAgentId: "",
+      analyzeRunId: "",
+      executeAgentId: "",
+      executeRunId: "",
+      evaluationAgentId: "",
+      evaluationRunId: "",
+      activeComponentIds: [],
+      nodeStatus: {},
+      workItems: {},
+      executionReport: null,
+      evaluationReport: null,
+      runBranches: [],
+      error: "",
+    });
+    setView("architecture");
   }
 
   async function copyLink() {
@@ -341,69 +789,98 @@ export function Board() {
     window.setTimeout(() => setCopied(false), 1200);
   }
 
+  const busy =
+    phase === "analyzing_current" ||
+    phase === "analyzing_target" ||
+    phase === "executing" ||
+    phase === "evaluating";
+  const locked = busy || phase === "done";
+
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <header className="flex shrink-0 flex-col gap-1 border-b border-line px-4 py-2">
-        <div className="flex min-h-8 items-center gap-6">
-          <Link href="/" className="font-serif text-xl tracking-tight">
-            Cural
-          </Link>
+      <header className="shrink-0 border-b border-line">
+        <div className="flex min-h-12 flex-wrap items-center gap-x-5 gap-y-2 px-4 py-2">
+          <Link href="/" className="font-serif text-[28px] font-semibold tracking-[0.04em]">Cural</Link>
           <p className="text-[13px] text-muted">{PHASE_LABEL[phase]}</p>
           {others.length > 0 ? (
-            <p className="text-[13px] text-muted">
-              {others.length + 1} here
-            </p>
+            <p className="text-[12px] text-muted">{others.length + 1} here</p>
           ) : null}
           <div className="ml-auto flex items-center gap-3">
-            {error ? <p className="max-w-md truncate text-[12px] text-bad">{error}</p> : null}
+            {error ? (
+              <p title={error} className="max-w-sm truncate text-[12px] text-bad">{error}</p>
+            ) : null}
+            {error && (phase === "analyzing_current" || phase === "analyzing_target") ? (
+              <button type="button" onClick={retryAnalysis} className="text-[12px] text-accent">
+                Retry
+              </button>
+            ) : null}
+            {phase === "parity_failed" && executionSnapshot ? (
+              <button type="button" onClick={retryEvaluation} className="text-[12px] text-accent">
+                Retry evaluation
+              </button>
+            ) : null}
             <button
               type="button"
-              onClick={() => void onRegenerate()}
+              onClick={regenerate}
               disabled={!legacyRepo || busy}
               className="text-[12px] text-muted hover:text-ink disabled:opacity-40"
             >
-              {busy && phase !== "executing" ? "Regenerating" : "Regenerate"}
+              Regenerate
             </button>
-            <button
-              type="button"
-              onClick={() => void copyLink()}
-              className="text-[12px] text-muted hover:text-ink"
-            >
+            <button type="button" onClick={() => void copyLink()} className="text-[12px] text-muted hover:text-ink">
               {copied ? "Copied" : "Copy link"}
             </button>
-            <button
-              type="button"
-              onClick={() => void onExecute()}
-              disabled={!canExecute}
-              className="bg-accent px-3 py-1.5 text-[13px] font-medium text-accent-ink disabled:opacity-40"
-            >
-              {phase === "executing" ? "Running" : "Execute"}
-            </button>
+            {phase === "aligning" ? (
+              <button type="button" onClick={() => void execute()} className="bg-accent px-3 py-1.5 text-[13px] font-medium text-accent-ink">
+                Execute
+              </button>
+            ) : null}
           </div>
         </div>
-        {analyzeAgentId || executeAgentId ? (
-          <div className="flex flex-wrap items-center gap-x-6 gap-y-1">
+
+        <div className="flex items-center gap-5 border-t border-line px-4">
+          {(["architecture", "evidence"] as View[]).map((item) => (
+            <button
+              key={item}
+              type="button"
+              onClick={() => setView(item)}
+              className={`border-b-2 py-2 text-[11px] uppercase tracking-[0.14em] ${
+                view === item ? "border-accent text-ink" : "border-transparent text-muted"
+              }`}
+            >
+              {item}
+            </button>
+          ))}
+          <div className="ml-auto hidden flex-wrap items-center gap-x-5 py-1 lg:flex">
             <AgentIdLink label="Analyze" id={analyzeAgentId} />
             <AgentIdLink label="Execute" id={executeAgentId} />
+            <AgentIdLink label="Evaluate" id={evaluationAgentId} />
           </div>
-        ) : null}
+        </div>
       </header>
 
       {!legacyRepo ? (
         <p className="px-4 py-10 text-sm text-muted">
-          This board is empty. Start from the home page.
+          This board is empty or was not initialized. Start from the home page.
         </p>
+      ) : view === "evidence" ? (
+        <EvidencePanel
+          workItems={workItems}
+          report={evaluationReport}
+          branches={runBranches}
+          journeys={journeys}
+        />
       ) : (
         <div className="flex min-h-0 flex-1">
           <ArchitecturePane
             pane="asIs"
             title="Current"
             graph={asIs}
-            selectable={false}
-            selectedId={null}
+            selectable
+            selectedId={selected?.pane === "asIs" ? selected.id : null}
             nodeStatus={{}}
             collab
-            onSelect={() => undefined}
+            onSelect={(id) => setSelected(id ? { pane: "asIs", id } : null)}
             onMove={(id, x, y) => moveNode("asIs", id, x, y)}
             onCursor={(cursor) => updateMyPresence({ cursor })}
           />
@@ -413,14 +890,19 @@ export function Board() {
             title="Target"
             graph={toBe}
             selectable
-            selectedId={selectedId}
+            selectedId={selected?.pane === "toBe" ? selected.id : null}
             nodeStatus={asNodeStatus(nodeStatus)}
             collab
-            onSelect={setSelectedId}
+            onSelect={(id) => setSelected(id ? { pane: "toBe", id } : null)}
             onMove={(id, x, y) => moveNode("toBe", id, x, y)}
             onCursor={(cursor) => updateMyPresence({ cursor })}
           />
-          <SpecInspector selectedId={selectedId} onClose={() => setSelectedId(null)} />
+          <SpecInspector
+            pane={selected?.pane ?? "toBe"}
+            selectedId={selected?.id ?? null}
+            locked={locked}
+            onClose={() => setSelected(null)}
+          />
         </div>
       )}
     </div>

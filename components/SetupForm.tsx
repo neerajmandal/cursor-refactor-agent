@@ -3,17 +3,22 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { nanoid } from "nanoid";
-import { setupStorageKey } from "@/lib/identity";
 
 export function SetupForm() {
   const router = useRouter();
   const [envName, setEnvName] = useState("");
   const [legacyRepo, setLegacyRepo] = useState("");
   const [targetRepo, setTargetRepo] = useState("");
+  const [legacyRef, setLegacyRef] = useState("");
+  const [targetRef, setTargetRef] = useState("");
   const [prompt, setPrompt] = useState("");
+  const [legacyBaseUrl, setLegacyBaseUrl] = useState("");
+  const [targetBaseUrl, setTargetBaseUrl] = useState("");
+  const [fixtureCommand, setFixtureCommand] = useState("");
   const [repos, setRepos] = useState<string[]>([]);
   const [repoError, setRepoError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [submitError, setSubmitError] = useState("");
 
   useEffect(() => {
     let cancelled = false;
@@ -29,21 +34,40 @@ export function SetupForm() {
     };
   }, []);
 
-  function onSubmit(event: React.FormEvent) {
+  async function onSubmit(event: React.FormEvent) {
     event.preventDefault();
     if (!legacyRepo.trim() || !targetRepo.trim() || !prompt.trim()) return;
     setBusy(true);
+    setSubmitError("");
     const id = nanoid(10);
-    sessionStorage.setItem(
-      setupStorageKey(id),
-      JSON.stringify({
-        envName: envName.trim(),
-        legacyRepo: legacyRepo.trim(),
-        targetRepo: targetRepo.trim(),
-        prompt: prompt.trim(),
-      }),
-    );
-    router.push(`/b/${id}`);
+    try {
+      const response = await fetch("/api/boards", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          boardId: id,
+          setup: {
+            envName: envName.trim(),
+            legacyRepo: legacyRepo.trim(),
+            targetRepo: targetRepo.trim(),
+            legacyRef: legacyRef.trim(),
+            targetRef: targetRef.trim(),
+            prompt: prompt.trim(),
+            legacyBaseUrl: legacyBaseUrl.trim(),
+            targetBaseUrl: targetBaseUrl.trim(),
+            fixtureCommand: fixtureCommand.trim(),
+          },
+        }),
+      });
+      const data = (await response.json()) as { error?: string };
+      if (!response.ok) throw new Error(data.error || "Failed to create board");
+      router.push(`/b/${id}`);
+    } catch (error) {
+      setBusy(false);
+      setSubmitError(
+        error instanceof Error ? error.message : "Failed to create board",
+      );
+    }
   }
 
   return (
@@ -57,7 +81,7 @@ export function SetupForm() {
       <form onSubmit={onSubmit} className="mt-14 max-w-xl space-y-8">
         <Field
           label="Cursor cloud environment"
-          hint="Optional. Named snapshot from the Cloud Agents dashboard. Leave blank to clone the repos into a default cloud VM."
+          hint="Optional. A named environment must already contain the required repos. Leave blank to clone the repo URLs and apply the revisions below."
         >
           <input
             value={envName}
@@ -101,6 +125,25 @@ export function SetupForm() {
           ))}
         </datalist>
 
+        <div className="grid gap-5 md:grid-cols-2">
+          <Field label="Legacy revision" hint="Optional branch, tag, or commit SHA. Used only without a named environment.">
+            <input
+              value={legacyRef}
+              onChange={(event) => setLegacyRef(event.target.value)}
+              placeholder="main"
+              className="field-input font-mono text-[13px]"
+            />
+          </Field>
+          <Field label="Target revision" hint="Optional branch, tag, or commit SHA. Used only without a named environment.">
+            <input
+              value={targetRef}
+              onChange={(event) => setTargetRef(event.target.value)}
+              placeholder="main"
+              className="field-input font-mono text-[13px]"
+            />
+          </Field>
+        </div>
+
         <Field label="Migration prompt">
           <textarea
             value={prompt}
@@ -112,6 +155,49 @@ export function SetupForm() {
           />
         </Field>
 
+        <div className="border-t border-line pt-7">
+          <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-muted">
+            Parity environment
+          </p>
+          <p className="mt-2 max-w-lg text-xs leading-5 text-muted">
+            Optional now. These make the post-migration evaluation reproducible.
+          </p>
+          <div className="mt-5 grid gap-5 md:grid-cols-2">
+            <Field label="Legacy base URL">
+              <input
+                value={legacyBaseUrl}
+                onChange={(event) => setLegacyBaseUrl(event.target.value)}
+                placeholder="http://localhost:4000"
+                className="field-input"
+              />
+            </Field>
+            <Field label="Target base URL">
+              <input
+                value={targetBaseUrl}
+                onChange={(event) => setTargetBaseUrl(event.target.value)}
+                placeholder="http://localhost:5000"
+                className="field-input"
+              />
+            </Field>
+          </div>
+          <div className="mt-5">
+            <Field
+              label="Fixture/reset command"
+              hint="Runs before parity checks to establish deterministic state."
+            >
+              <input
+                value={fixtureCommand}
+                onChange={(event) => setFixtureCommand(event.target.value)}
+                placeholder="npm run test:seed"
+                className="field-input font-mono text-[13px]"
+              />
+            </Field>
+          </div>
+        </div>
+
+        {submitError ? (
+          <p role="alert" className="text-sm text-bad">{submitError}</p>
+        ) : null}
         <button
           type="submit"
           disabled={busy}
