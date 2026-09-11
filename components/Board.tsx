@@ -227,15 +227,26 @@ export function Board() {
   useEffect(() => {
     if (phase !== "executing" || !executeAgentId || !executeRunId) return;
     let cancelled = false;
-    const ids = toBe.nodes.map((node) => node.id).join(",");
+    const components = toBe.nodes
+      .map((node) => `${node.id}|${node.label}`)
+      .join(",");
 
     async function poll() {
       const response = await fetch(
-        `/api/agents/${executeAgentId}?runId=${encodeURIComponent(executeRunId)}&componentIds=${encodeURIComponent(ids)}`,
+        `/api/agents/${executeAgentId}?runId=${encodeURIComponent(executeRunId)}&components=${encodeURIComponent(components)}`,
       );
       const data = (await response.json()) as PollResponse;
       if (cancelled) return;
       if (data.nodeStatus) {
+        const values = Object.values(data.nodeStatus);
+        if (
+          data.status === "running" &&
+          values.length > 0 &&
+          values.every((value) => value === "pending") &&
+          toBe.nodes[0]
+        ) {
+          data.nodeStatus[toBe.nodes[0].id] = "running";
+        }
         patch({ nodeStatus: data.nodeStatus });
       }
       if (data.status === "running") return;
@@ -251,7 +262,7 @@ export function Board() {
     }
 
     void poll();
-    const interval = window.setInterval(() => void poll(), 4000);
+    const interval = window.setInterval(() => void poll(), 2000);
     return () => {
       cancelled = true;
       window.clearInterval(interval);

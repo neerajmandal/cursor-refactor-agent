@@ -12,13 +12,22 @@ export async function GET(
     const url = new URL(request.url);
     const runId = url.searchParams.get("runId");
     const componentIds = url.searchParams.get("componentIds");
+    const componentsRaw = url.searchParams.get("components");
     if (!runId) {
       return NextResponse.json({ error: "runId is required" }, { status: 400 });
     }
+    const components = componentsRaw
+      ? componentsRaw.split(",").flatMap((item) => {
+          const [id, ...labelParts] = item.split("|");
+          if (!id) return [];
+          return [{ id, label: labelParts.join("|") || id }];
+        })
+      : undefined;
     const result = await pollRun({
       agentId: id,
       runId,
       componentIds: componentIds ? componentIds.split(",").filter(Boolean) : undefined,
+      components,
     });
     return NextResponse.json(result);
   } catch (error) {

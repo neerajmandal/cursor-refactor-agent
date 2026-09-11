@@ -1,3 +1,4 @@
+import type { ComponentRef } from "@/lib/graph";
 import { formatSpec, parseSpec } from "@/lib/spec";
 import type { GraphNode } from "@/lib/types";
 
@@ -94,9 +95,14 @@ export function executePrompt(input: {
   targetRepo: string;
   prompt: string;
   components: GraphNode[];
+  refs?: ComponentRef[];
 }): string {
-  const roster = input.components
-    .map((node) => `- ${node.id}: ${node.label}`)
+  const roster = (input.refs ?? input.components.map((node) => ({
+    id: node.id,
+    label: node.label,
+    slug: node.id,
+  })))
+    .map((ref) => `- ${ref.id} / ${ref.slug}: ${ref.label}`)
     .join("\n");
 
   return `You are the parent migration agent. Delegate. Do not implement every component yourself.
@@ -107,10 +113,15 @@ Write ALL new code in the empty target repo: ${input.targetRepo}
 Team migration intent:
 ${input.prompt}
 
-You have named subagents, one per target component. Spawn the matching subagent for each component and let it implement that component in the target repo. Coordinate shared contracts, order work if there are dependencies, and keep the target repo consistent.
+You have named subagents, one per target component. Spawn the matching subagent (use the slug) for each component and let it implement that component in the target repo. Coordinate shared contracts, order work if there are dependencies, and keep the target repo consistent.
 
 Components:
 ${roster}
+
+Each time you start or finish a component, emit a status line on its own line so the board can light up that node:
+STATUS running <id>
+STATUS done <id>
+STATUS error <id>
 
 When a subagent finishes, review its diff briefly, then continue. Open a PR on the target repo when the migration slice is in place.`;
 }

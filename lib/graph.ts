@@ -291,31 +291,106 @@ export function slugAgentName(id: string, index: number): string {
   return slug || `component_${index + 1}`;
 }
 
+export type ComponentRef = {
+  id: string;
+  label: string;
+  slug: string;
+};
+
+export function componentRefs(
+  nodes: { id: string; label: string }[],
+): ComponentRef[] {
+  const used = new Set<string>();
+  return nodes.map((node, index) => {
+    let slug = slugAgentName(node.id, index);
+    if (used.has(slug)) slug = `${slug}_${index + 1}`;
+    used.add(slug);
+    return { id: node.id, label: node.label, slug };
+  });
+}
+
+const STATUS_WORD: Record<string, "pending" | "running" | "done" | "error"> = {
+  pending: "pending",
+  running: "running",
+  started: "running",
+  spawning: "running",
+  implement: "running",
+  implementing: "running",
+  delegated: "running",
+  done: "done",
+  completed: "done",
+  finished: "done",
+  reviewed: "done",
+  error: "error",
+  failed: "error",
+  cancelled: "error",
+};
+
+function aliasesFor(ref: ComponentRef): string[] {
+  return [ref.id, ref.slug, ref.label]
+    .map((value) => value.trim().toLowerCase())
+    .filter((value, index, all) => value.length >= 2 && all.indexOf(value) === index);
+}
+
+function matchRef(token: string, refs: ComponentRef[]): ComponentRef | undefined {
+  const needle = token.trim().toLowerCase();
+  if (!needle) return undefined;
+  return refs.find((ref) => aliasesFor(ref).includes(needle));
+}
+
+function applyStatusWindow(
+  window: string,
+  current: "pending" | "running" | "done" | "error",
+): "pending" | "running" | "done" | "error" {
+  if (/\b(error|failed|cancelled)\b/.test(window)) return "error";
+  if (/\b(completed|finished|done|reviewed)\b/.test(window)) return "done";
+  if (/\b(running|started|spawning|implementing|delegat)/.test(window)) {
+    return "running";
+  }
+  return current === "pending" ? "running" : current;
+}
+
 export function inferNodeStatus(
   payload: unknown,
-  ids: string[],
+  refs: ComponentRef[] | string[],
 ): Record<string, "pending" | "running" | "done" | "error"> {
-  const blob = JSON.stringify(payload ?? "").toLowerCase();
+  const list: ComponentRef[] = refs.map((item, index) =>
+    typeof item === "string"
+      ? { id: item, label: item, slug: slugAgentName(item, index) }
+      : item,
+  );
   const status: Record<string, "pending" | "running" | "done" | "error"> = {};
-  for (const id of ids) {
-    const needle = id.toLowerCase();
-    if (!blob.includes(needle)) {
-      status[id] = "pending";
-      continue;
-    }
-    const idx = blob.indexOf(needle);
-    const window = blob.slice(Math.max(0, idx - 80), idx + needle.length + 80);
-    if (window.includes("error") || window.includes("failed")) {
-      status[id] = "error";
-    } else if (
-      window.includes("completed") ||
-      window.includes("finished") ||
-      window.includes("done")
-    ) {
-      status[id] = "done";
-    } else {
-      status[id] = "running";
-    }
+  for (const ref of list) status[ref.id] = "pending";
+
+  const blob = JSON.stringify(payload ?? "");
+  const marker = /STATUS\s+(pending|running|done|error|started|completed|failed)\s+([A-Za-z0-9_-]+)/gi;
+  for (const match of blob.matchAll(marker)) {
+    const next = STATUS_WORD[match[1].toLowerCase()];
+    const ref = matchRef(match[2], list);
+    if (next && ref) status[ref.id] = next;
   }
+
+  const lower = blob.toLowerCase();
+  for (const ref of list) {
+    if (status[ref.id] !== "pending") continue;
+    let latest = -1;
+    let next: "pending" | "running" | "done" | "error" = "pending";
+    for (const alias of aliasesFor(ref)) {
+      let from = 0;
+      while (from < lower.length) {
+        const idx = lower.indexOf(alias, from);
+        if (idx === -1) break;
+        const window = lower.slice(Math.max(0, idx - 90), idx + alias.length + 90);
+        const guessed = applyStatusWindow(window, "pending");
+        if (idx >= latest) {
+          latest = idx;
+          next = guessed;
+        }
+        from = idx + alias.length;
+      }
+    }
+    if (latest >= 0) status[ref.id] = next;
+  }
+
   return status;
 }

@@ -92,6 +92,21 @@ body {
   animation: cural-pulse 1.4s ease-in-out infinite;
 }
 
+@keyframes cural-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.node-spinner {
+  width: 12px;
+  height: 12px;
+  border: 1.5px solid var(--line);
+  border-top-color: var(--accent);
+  border-radius: 999px;
+  animation: cural-spin 0.7s linear infinite;
+}
+
 .field-input {
   width: 100%;
   background: transparent;

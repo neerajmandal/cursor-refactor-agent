@@ -1,5 +1,5 @@
 import { Agent, Cursor, type AgentDefinition, type CloudAgentOptions } from "@cursor/sdk";
-import { extractGraph, flattenAgentText, inferNodeStatus, layoutGraph, slugAgentName } from "@/lib/graph";
+import { componentRefs, extractGraph, flattenAgentText, inferNodeStatus, layoutGraph } from "@/lib/graph";
 import { asIsPrompt, executePrompt, subagentPrompt, toBePrompt } from "@/lib/prompts";
 import { isCloudAgentId, type Graph, type GraphNode, type NodeStatus } from "@/lib/types";
 
@@ -82,14 +82,12 @@ export async function startExecute(input: {
 }): Promise<{ agentId: string; runId: string }> {
   const apiKey = requireApiKey();
   const agents: Record<string, AgentDefinition> = {};
-  const used = new Set<string>();
+  const refs = componentRefs(input.components);
 
-  input.components.forEach((node, index) => {
-    let name = slugAgentName(node.id, index);
-    if (used.has(name)) name = `${name}_${index + 1}`;
-    used.add(name);
-    agents[name] = {
-      description: `Implement target component ${node.label} (${node.id}).`,
+  refs.forEach((ref, index) => {
+    const node = input.components[index];
+    agents[ref.slug] = {
+      description: `Implement target component ${ref.label} (${ref.id}).`,
       prompt: subagentPrompt(node, input),
     };
   });
@@ -107,7 +105,7 @@ export async function startExecute(input: {
   });
 
   try {
-    const run = await agent.send(executePrompt(input));
+    const run = await agent.send(executePrompt({ ...input, refs }));
     return { agentId: agent.agentId, runId: run.id };
   } finally {
     agent.close();
@@ -118,6 +116,7 @@ export async function pollRun(input: {
   agentId: string;
   runId: string;
   componentIds?: string[];
+  components?: { id: string; label: string }[];
 }): Promise<{
   status: string;
   result?: string;
@@ -142,8 +141,13 @@ export async function pollRun(input: {
   }
 
   const text = [run.result, flattenAgentText(conversation)].filter(Boolean).join("\n");
-  const nodeStatus = input.componentIds?.length
-    ? inferNodeStatus(conversation ?? text, input.componentIds)
+  const refs = input.components?.length
+    ? componentRefs(input.components)
+    : input.componentIds?.length
+      ? componentRefs(input.componentIds.map((id) => ({ id, label: id })))
+      : undefined;
+  const nodeStatus = refs?.length
+    ? inferNodeStatus(conversation ?? text, refs)
     : undefined;
 
   if (run.status === "running") {
@@ -165,7 +169,7 @@ export async function pollRun(input: {
       graph = layoutGraph(extractGraph(text));
     }
   } catch (error) {
-    if (!input.componentIds) {
+    if (!refs?.length) {
       return {
         status: "error",
         result: text,
@@ -175,7 +179,8 @@ export async function pollRun(input: {
   }
 
   if (nodeStatus && run.status === "finished") {
-    for (const id of input.componentIds ?? []) {
+    for (const ref of refs ?? []) {
+      const id = ref.id;
       if (nodeStatus[id] === "pending" || nodeStatus[id] === "running") {
         nodeStatus[id] = "done";
       }
