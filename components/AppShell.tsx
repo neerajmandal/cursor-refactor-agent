@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useSyncExternalStore } from "react";
 import { readIdentity } from "@/lib/identity";
 
@@ -32,6 +32,7 @@ const NAV = [
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
+  const router = useRouter();
   const mounted = useSyncExternalStore(emptySubscribe, () => true, () => false);
   const identity = mounted ? readIdentity() : null;
 
@@ -88,6 +89,18 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               Join a board to set your name.
             </p>
           )}
+          <button
+            type="button"
+            onClick={() => {
+              void fetch("/api/logout", { method: "POST" }).then(() => {
+                router.replace("/login");
+                router.refresh();
+              });
+            }}
+            className="mt-2 w-full rounded-md px-2 py-1.5 text-left text-[12px] text-muted hover:bg-paper-2 hover:text-ink"
+          >
+            Sign out
+          </button>
         </div>
       </aside>
 

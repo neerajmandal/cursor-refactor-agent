@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   useMutation,
   useOthers,
@@ -13,6 +13,7 @@ import { ArchitecturePane } from "@/components/ArchitecturePane";
 import { BoardChrome, BoardOverflowItem } from "@/components/BoardChrome";
 import { EvidencePanel } from "@/components/EvidencePanel";
 import { SpecInspector } from "@/components/SpecInspector";
+import { persistBoardArchiveClient } from "@/lib/archive/client";
 import {
   createMigrationSnapshot,
   reconcileJourneyComponents,
@@ -109,6 +110,7 @@ export function Board() {
     id: string;
   } | null>(null);
   const [copied, setCopied] = useState(false);
+  const ingestedEvaluation = useRef("");
   const others = useOthers();
   const room = useRoom();
   const updateMyPresence = useUpdateMyPresence();
@@ -143,6 +145,7 @@ export function Board() {
     string,
     WorkItem
   >;
+  const executionReport = useStorage((root) => root.executionReport ?? null);
   const evaluationReport = useStorage((root) => root.evaluationReport ?? null);
   const evaluationVideos = useStorage((root) => root.evaluationVideos ?? []);
   const runBranches = useStorage((root) => root.runBranches ?? []);
@@ -680,6 +683,82 @@ export function Board() {
     runBranches,
   ]);
 
+  useEffect(() => {
+    if (!legacyRepo) return;
+    const shouldIngest =
+      (phase === "done" || phase === "parity_failed") &&
+      Boolean(evaluationReport || evaluationVideos.length) &&
+      ingestedEvaluation.current !== evaluationRunId;
+    const ingestArtifacts = shouldIngest && Boolean(evaluationRunId);
+    const timer = window.setTimeout(() => {
+      void persistBoardArchiveClient(
+        room.id,
+        {
+          envName,
+          legacyRepo,
+          targetRepo,
+          legacyRef,
+          targetRef,
+          prompt,
+          legacyBaseUrl,
+          targetBaseUrl,
+          fixtureCommand,
+          phase,
+          asIs,
+          toBe,
+          journeys,
+          architectureVersion,
+          executionSnapshot,
+          analyzeAgentId,
+          analyzeRunId,
+          executeAgentId,
+          executeRunId,
+          evaluationAgentId,
+          evaluationRunId,
+          workItems,
+          executionReport,
+          evaluationReport,
+          evaluationVideos,
+          runBranches,
+          error,
+        },
+        { ingestArtifacts },
+      ).then(() => {
+        if (ingestArtifacts) ingestedEvaluation.current = evaluationRunId;
+      });
+    }, 500);
+    return () => window.clearTimeout(timer);
+  }, [
+    analyzeAgentId,
+    analyzeRunId,
+    architectureVersion,
+    asIs,
+    envName,
+    error,
+    evaluationAgentId,
+    evaluationReport,
+    evaluationRunId,
+    evaluationVideos,
+    executeAgentId,
+    executeRunId,
+    executionReport,
+    executionSnapshot,
+    fixtureCommand,
+    journeys,
+    legacyBaseUrl,
+    legacyRef,
+    legacyRepo,
+    phase,
+    prompt,
+    room.id,
+    runBranches,
+    targetBaseUrl,
+    targetRef,
+    targetRepo,
+    toBe,
+    workItems,
+  ]);
+
   async function execute() {
     const reconciledJourneys = reconcileJourneyComponents(asIs, toBe, journeys);
     const errors = validateAlignment(toBe, reconciledJourneys);
@@ -859,6 +938,9 @@ export function Board() {
             </BoardOverflowItem>
             <BoardOverflowItem onClick={() => void copyLink()}>
               {copied ? "Copied" : "Copy link"}
+            </BoardOverflowItem>
+            <BoardOverflowItem href={`/p/${room.id}`}>
+              Open saved view
             </BoardOverflowItem>
             {analyzeAgentId ? (
               <div className="border-t border-line px-3 py-2">

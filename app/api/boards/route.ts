@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { persistBoardArchive } from "@/lib/archive/persist";
 import { createBoardRoom } from "@/lib/liveblocks-server";
 import type { BoardSetup } from "@/lib/types";
 
@@ -24,7 +25,7 @@ export async function POST(request: Request) {
       );
     }
 
-    await createBoardRoom(boardId, {
+    const storage = await createBoardRoom(boardId, {
       envName: setup.envName?.trim() ?? "",
       legacyRepo: setup.legacyRepo.trim(),
       targetRepo: setup.targetRepo.trim(),
@@ -35,6 +36,7 @@ export async function POST(request: Request) {
       targetBaseUrl: setup.targetBaseUrl?.trim() ?? "",
       fixtureCommand: setup.fixtureCommand?.trim() ?? "",
     });
+    await persistBoardArchive(boardId, storage);
     return NextResponse.json({ boardId }, { status: 201 });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Board creation failed";

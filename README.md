@@ -43,7 +43,15 @@ Required server credentials:
 ```dotenv
 CURSOR_API_KEY=cursor_...
 LIVEBLOCKS_SECRET_KEY=sk_...
+APP_PASSWORD=
+APP_SECRET=
+DATABASE_URL=
+BLOB_READ_WRITE_TOKEN=
 ```
+
+Set `APP_PASSWORD` to hide the app behind a shared login. Local runs store
+refactor history under `.data/cural`. On Vercel, set `DATABASE_URL` (Neon) and
+`BLOB_READ_WRITE_TOKEN` so graphs, reports, and walkthrough videos persist.
 
 The setup page accepts optional pinned revisions, legacy/target base URLs, and a
 fixture/reset command. Provide them for reproducible parity runs. If URLs are

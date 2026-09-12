@@ -15,10 +15,32 @@ const STATUS_TEXT = {
   error: "Needs work",
 } as const;
 
-function videoSrc(video: EvaluationVideo, agentId?: string): string | null {
+function isImagePath(path: string): boolean {
+  return /\.(png|jpe?g|gif|webp|svg)$/i.test(path);
+}
+
+function artifactSrc(
+  path: string,
+  archiveId?: string,
+  agentId?: string,
+): string | null {
+  if (path.startsWith("http://") || path.startsWith("https://")) return path;
+  if (archiveId) {
+    return `/api/archives/${encodeURIComponent(archiveId)}/artifacts?path=${encodeURIComponent(path)}`;
+  }
+  if (agentId) {
+    return `/api/agents/${agentId}/artifacts?path=${encodeURIComponent(path)}`;
+  }
+  return null;
+}
+
+function videoSrc(
+  video: EvaluationVideo,
+  agentId?: string,
+  archiveId?: string,
+): string | null {
   if (video.url) return video.url;
-  if (!agentId || !video.path) return null;
-  return `/api/agents/${agentId}/artifacts?path=${encodeURIComponent(video.path)}`;
+  return artifactSrc(video.path, archiveId, agentId);
 }
 
 export function EvidencePanel({
@@ -28,6 +50,7 @@ export function EvidencePanel({
   evaluationAgentId,
   branches,
   journeys,
+  archiveId,
 }: {
   workItems: Record<string, WorkItem>;
   report: EvaluationReport | null;
@@ -35,6 +58,7 @@ export function EvidencePanel({
   evaluationAgentId?: string;
   branches: RunBranch[];
   journeys: Journey[];
+  archiveId?: string;
 }) {
   const items = Object.values(workItems);
   const walkthroughs = videos.length
@@ -68,7 +92,7 @@ export function EvidencePanel({
                 </h3>
                 <div className="mt-4 space-y-5">
                   {walkthroughs.map((video) => {
-                    const src = videoSrc(video, evaluationAgentId);
+                    const src = videoSrc(video, evaluationAgentId, archiveId);
                     return (
                       <figure key={video.path} className="space-y-2">
                         <figcaption className="flex flex-wrap items-baseline justify-between gap-2 text-[13px]">
@@ -123,7 +147,39 @@ export function EvidencePanel({
                           <p><span className="text-ink">Target:</span> {check.target}</p>
                           {check.difference ? <p className="text-bad">{check.difference}</p> : null}
                           {check.evidence.length ? (
-                            <p className="font-mono text-[11px]">{check.evidence.join(" · ")}</p>
+                            <div className="space-y-2">
+                              {check.evidence.map((item) => {
+                                const src = artifactSrc(item, archiveId, evaluationAgentId);
+                                if (src && isImagePath(item)) {
+                                  return (
+                                    <img
+                                      key={item}
+                                      src={src}
+                                      alt={check.name}
+                                      className="max-h-64 rounded-md border border-line"
+                                    />
+                                  );
+                                }
+                                if (src) {
+                                  return (
+                                    <a
+                                      key={item}
+                                      href={src}
+                                      target="_blank"
+                                      rel="noreferrer"
+                                      className="block font-mono text-[11px] text-accent hover:underline"
+                                    >
+                                      {item}
+                                    </a>
+                                  );
+                                }
+                                return (
+                                  <p key={item} className="font-mono text-[11px]">
+                                    {item}
+                                  </p>
+                                );
+                              })}
+                            </div>
                           ) : null}
                         </div>
                       </div>

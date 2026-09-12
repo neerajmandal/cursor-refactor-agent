@@ -119,6 +119,7 @@ function PaneInner({
   nodeStatus,
   highlightIds,
   collab,
+  nodesDraggable = true,
   onSelect,
   onMove,
   onCursor,
@@ -132,6 +133,7 @@ function PaneInner({
   nodeStatus: Record<string, NodeStatus>;
   highlightIds?: string[] | null;
   collab?: boolean;
+  nodesDraggable?: boolean;
   onSelect: (id: string | null) => void;
   onMove: (id: string, x: number, y: number) => void;
   onCursor?: (
@@ -181,7 +183,7 @@ function PaneInner({
           nodes={nodes}
           edges={edges}
           nodeTypes={nodeTypes}
-          nodesDraggable
+          nodesDraggable={nodesDraggable}
           nodesConnectable={false}
           elementsSelectable={selectable}
           panOnScroll
@@ -230,6 +232,7 @@ export function ArchitecturePane(props: {
   nodeStatus: Record<string, NodeStatus>;
   highlightIds?: string[] | null;
   collab?: boolean;
+  nodesDraggable?: boolean;
   onSelect: (id: string | null) => void;
   onMove: (id: string, x: number, y: number) => void;
   onCursor?: (
