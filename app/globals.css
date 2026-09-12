@@ -125,3 +125,33 @@ body {
 .field-input:focus {
   border-bottom-color: var(--ink);
 }
+
+.setup-card {
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--node);
+  padding: 20px;
+}
+
+.setup-card-compact {
+  padding: 12px 14px;
+  border-radius: 12px;
+}
+
+.card-input {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--paper);
+  padding: 7px 10px;
+  font-size: 13px;
+  outline: none;
+}
+
+.card-input:focus {
+  border-color: var(--ink);
+}
+
+details > summary::-webkit-details-marker {
+  display: none;
+}

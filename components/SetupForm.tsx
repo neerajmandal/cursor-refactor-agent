@@ -4,6 +4,13 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { nanoid } from "nanoid";
 
+const STEPS = [
+  "Connect systems",
+  "Review architecture",
+  "Execute",
+  "Evaluate",
+] as const;
+
 export function SetupForm() {
   const router = useRouter();
   const [envName, setEnvName] = useState("");
@@ -71,53 +78,113 @@ export function SetupForm() {
   }
 
   return (
-    <main className="min-h-full px-8 py-10 md:px-16 md:py-14">
-      <p className="font-serif text-4xl tracking-tight text-ink">Cural</p>
-      <p className="mt-3 max-w-md text-[15px] leading-6 text-muted">
-        Map the legacy system, agree on the target, then start Cursor cloud
-        agents from the board.
-      </p>
+    <main className="flex h-full min-h-0 flex-col px-6 py-5 md:px-8 md:py-6">
+      <header className="flex shrink-0 items-end justify-between gap-6">
+        <div className="min-w-0">
+          <h1 className="font-serif text-[32px] leading-none tracking-tight text-ink">
+            Set up your migration
+          </h1>
+        </div>
+        <ArchitectureSketch className="hidden shrink-0 xl:block" />
+      </header>
 
-      <form onSubmit={onSubmit} className="mt-14 max-w-xl space-y-8">
-        <Field
-          label="Cursor cloud environment"
-          hint="Optional. A named environment must already contain the required repos. Leave blank to clone the repo URLs and apply the revisions below."
-        >
+      <ol className="mt-4 flex shrink-0 flex-wrap items-center gap-x-2 gap-y-1.5">
+        {STEPS.map((label, index) => {
+          const active = index === 0;
+          return (
+            <li key={label} className="flex items-center gap-2">
+              {index > 0 ? (
+                <span className="hidden h-px w-5 bg-line sm:block" aria-hidden />
+              ) : null}
+              <span className="flex items-center gap-1.5">
+                <span
+                  className={
+                    active
+                      ? "flex h-5 w-5 items-center justify-center rounded-full bg-accent text-[10px] font-semibold text-accent-ink"
+                      : "flex h-5 w-5 items-center justify-center rounded-full border border-line bg-node text-[10px] font-medium text-muted"
+                  }
+                  aria-current={active ? "step" : undefined}
+                >
+                  {index + 1}
+                </span>
+                <span
+                  className={
+                    active
+                      ? "text-[12px] font-medium text-ink"
+                      : "text-[12px] text-muted"
+                  }
+                >
+                  {label}
+                </span>
+              </span>
+            </li>
+          );
+        })}
+      </ol>
+
+      <form
+        onSubmit={onSubmit}
+        className="mt-4 flex min-h-0 flex-1 flex-col gap-3"
+      >
+        <section className="setup-card setup-card-compact flex shrink-0 flex-wrap items-center gap-x-4 gap-y-2">
+          <div className="min-w-[140px] shrink-0">
+            <h2 className="text-[13px] font-semibold text-ink">
+              Cursor cloud environment
+            </h2>
+            <p className="mt-0.5 text-[11px] leading-4 text-muted">
+              Optional named env, or leave blank to clone URLs.
+            </p>
+          </div>
           <input
             value={envName}
             onChange={(event) => setEnvName(event.target.value)}
-            placeholder="e.g. acme-monolith"
-            className="field-input"
+            placeholder="e.g. acme-modernization"
+            className="card-input min-w-0 flex-1"
+            aria-label="Environment name"
           />
-        </Field>
+          <a
+            href="https://cursor.com/dashboard"
+            target="_blank"
+            rel="noreferrer"
+            className="shrink-0 rounded-lg border border-dashed border-line px-2.5 py-1.5 text-[12px] font-medium text-muted transition-colors hover:border-accent hover:text-accent"
+          >
+            Manage in Cursor
+          </a>
+        </section>
 
-        <Field
-          label="Legacy repo"
-          hint={repoError ? `${repoError}. Paste a GitHub URL.` : "Connected Cursor repos, or paste a URL."}
-        >
-          <input
-            value={legacyRepo}
-            onChange={(event) => setLegacyRepo(event.target.value)}
-            list="cural-repos"
-            required
-            placeholder="https://github.com/org/legacy"
-            className="field-input"
+        <div className="grid min-h-0 shrink-0 items-stretch gap-3 lg:grid-cols-[1fr_auto_1fr]">
+          <SystemCard
+            tone="legacy"
+            title="Legacy system"
+            icon={<GitHubIcon />}
+            repo={legacyRepo}
+            onRepoChange={setLegacyRepo}
+            branch={legacyRef}
+            onBranchChange={setLegacyRef}
+            repoHint={
+              repoError
+                ? `${repoError}. Paste a GitHub URL.`
+                : "Connected Cursor repos, or paste a URL."
+            }
+            ready={Boolean(legacyRepo.trim())}
           />
-        </Field>
-
-        <Field
-          label="New empty repo"
-          hint="Must already exist. Agents will write the migrated code here."
-        >
-          <input
-            value={targetRepo}
-            onChange={(event) => setTargetRepo(event.target.value)}
-            list="cural-repos"
-            required
-            placeholder="https://github.com/org/new"
-            className="field-input"
+          <div className="hidden items-center justify-center lg:flex" aria-hidden>
+            <span className="flex h-8 w-8 items-center justify-center rounded-full border border-line bg-node text-sm text-muted">
+              →
+            </span>
+          </div>
+          <SystemCard
+            tone="target"
+            title="Target system"
+            icon={<SparkleIcon />}
+            repo={targetRepo}
+            onRepoChange={setTargetRepo}
+            branch={targetRef}
+            onBranchChange={setTargetRef}
+            repoHint="Must already exist. Agents write migrated code here."
+            ready={Boolean(targetRepo.trim())}
           />
-        </Field>
+        </div>
 
         <datalist id="cural-repos">
           {repos.map((url) => (
@@ -125,105 +192,272 @@ export function SetupForm() {
           ))}
         </datalist>
 
-        <div className="grid gap-5 md:grid-cols-2">
-          <Field label="Legacy revision" hint="Optional branch, tag, or commit SHA. Used only without a named environment.">
-            <input
-              value={legacyRef}
-              onChange={(event) => setLegacyRef(event.target.value)}
-              placeholder="main"
-              className="field-input font-mono text-[13px]"
-            />
-          </Field>
-          <Field label="Target revision" hint="Optional branch, tag, or commit SHA. Used only without a named environment.">
-            <input
-              value={targetRef}
-              onChange={(event) => setTargetRef(event.target.value)}
-              placeholder="main"
-              className="field-input font-mono text-[13px]"
-            />
-          </Field>
-        </div>
-
-        <Field label="Migration prompt">
+        <section className="setup-card setup-card-compact flex min-h-0 flex-1 flex-col gap-2">
+          <div className="flex shrink-0 items-baseline justify-between gap-3">
+            <label htmlFor="migration-prompt" className="text-[13px] font-semibold text-ink">
+              Migration prompt
+            </label>
+            <details className="relative">
+              <summary className="cursor-pointer list-none text-[12px] font-medium text-muted outline-none hover:text-ink">
+                Parity options
+              </summary>
+              <div className="absolute right-0 z-10 mt-2 w-[min(100vw-3rem,22rem)] rounded-xl border border-line bg-node p-3 shadow-sm">
+                <p className="text-[11px] leading-4 text-muted">
+                  Optional. Used after execution for reproducible evaluation.
+                </p>
+                <div className="mt-2 space-y-2">
+                  <input
+                    value={legacyBaseUrl}
+                    onChange={(event) => setLegacyBaseUrl(event.target.value)}
+                    placeholder="Legacy base URL"
+                    aria-label="Legacy base URL"
+                    className="card-input"
+                  />
+                  <input
+                    value={targetBaseUrl}
+                    onChange={(event) => setTargetBaseUrl(event.target.value)}
+                    placeholder="Target base URL"
+                    aria-label="Target base URL"
+                    className="card-input"
+                  />
+                  <input
+                    value={fixtureCommand}
+                    onChange={(event) => setFixtureCommand(event.target.value)}
+                    placeholder="Fixture/reset command"
+                    aria-label="Fixture/reset command"
+                    className="card-input font-mono text-[12px]"
+                  />
+                </div>
+              </div>
+            </details>
+          </div>
           <textarea
+            id="migration-prompt"
             value={prompt}
             onChange={(event) => setPrompt(event.target.value)}
             required
-            rows={6}
+            rows={2}
             placeholder="Split the monolith into a Next.js app and a Go API. Keep auth, drop the SOAP adapter."
-            className="field-input min-h-36 resize-y"
+            className="min-h-[4.5rem] w-full flex-1 resize-none rounded-lg border border-line bg-paper px-3 py-2 text-[13px] leading-5 outline-none focus:border-ink"
           />
-        </Field>
-
-        <div className="border-t border-line pt-7">
-          <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-muted">
-            Parity environment
-          </p>
-          <p className="mt-2 max-w-lg text-xs leading-5 text-muted">
-            Optional now. These make the post-migration evaluation reproducible.
-          </p>
-          <div className="mt-5 grid gap-5 md:grid-cols-2">
-            <Field label="Legacy base URL">
-              <input
-                value={legacyBaseUrl}
-                onChange={(event) => setLegacyBaseUrl(event.target.value)}
-                placeholder="http://localhost:4000"
-                className="field-input"
-              />
-            </Field>
-            <Field label="Target base URL">
-              <input
-                value={targetBaseUrl}
-                onChange={(event) => setTargetBaseUrl(event.target.value)}
-                placeholder="http://localhost:5000"
-                className="field-input"
-              />
-            </Field>
-          </div>
-          <div className="mt-5">
-            <Field
-              label="Fixture/reset command"
-              hint="Runs before parity checks to establish deterministic state."
-            >
-              <input
-                value={fixtureCommand}
-                onChange={(event) => setFixtureCommand(event.target.value)}
-                placeholder="npm run test:seed"
-                className="field-input font-mono text-[13px]"
-              />
-            </Field>
-          </div>
-        </div>
+        </section>
 
         {submitError ? (
-          <p role="alert" className="text-sm text-bad">{submitError}</p>
+          <p role="alert" className="shrink-0 text-sm text-bad">
+            {submitError}
+          </p>
         ) : null}
-        <button
-          type="submit"
-          disabled={busy}
-          className="bg-accent px-5 py-2.5 text-sm font-medium text-accent-ink transition-opacity hover:opacity-90 disabled:opacity-50"
-        >
-          {busy ? "Opening board" : "Open board"}
-        </button>
+
+        <footer className="flex shrink-0 items-center justify-between gap-4 border-t border-line pt-3">
+          <p className="hidden text-[12px] leading-4 text-muted sm:block">
+            Next: analyze → review on the board → execute → evaluate.
+          </p>
+          <button
+            type="submit"
+            disabled={busy}
+            className="ml-auto rounded-xl bg-cta px-4 py-2.5 text-[13px] font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-50"
+          >
+            {busy ? "Opening board…" : "Analyze architecture →"}
+          </button>
+        </footer>
       </form>
     </main>
   );
 }
 
-function Field({
-  label,
-  hint,
-  children,
+function SystemCard({
+  tone,
+  title,
+  icon,
+  repo,
+  onRepoChange,
+  branch,
+  onBranchChange,
+  repoHint,
+  ready,
 }: {
-  label: string;
-  hint?: string;
-  children: React.ReactNode;
+  tone: "legacy" | "target";
+  title: string;
+  icon: React.ReactNode;
+  repo: string;
+  onRepoChange: (value: string) => void;
+  branch: string;
+  onBranchChange: (value: string) => void;
+  repoHint: string;
+  ready: boolean;
 }) {
   return (
-    <label className="block">
-      <span className="text-[13px] font-medium tracking-wide text-ink">{label}</span>
-      <div className="mt-2">{children}</div>
-      {hint ? <span className="mt-2 block text-xs leading-5 text-muted">{hint}</span> : null}
-    </label>
+    <section
+      className={
+        tone === "target"
+          ? "setup-card setup-card-compact bg-accent-soft/50"
+          : "setup-card setup-card-compact"
+      }
+    >
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-1.5">
+          <span className="text-muted">{icon}</span>
+          <h2 className="text-[13px] font-semibold text-ink">{title}</h2>
+        </div>
+        {ready ? (
+          <span className="flex items-center gap-1.5 text-[11px] font-medium text-good">
+            <span className="h-1.5 w-1.5 rounded-full bg-good" aria-hidden />
+            Ready
+          </span>
+        ) : (
+          <span className="flex items-center gap-1.5 text-[11px] text-muted">
+            <span className="h-1.5 w-1.5 rounded-full bg-line" aria-hidden />
+            Waiting
+          </span>
+        )}
+      </div>
+
+      <div className="mt-2.5 grid gap-2 sm:grid-cols-[1fr_7.5rem]">
+        <label className="min-w-0 block">
+          <span className="sr-only">Repository</span>
+          <input
+            value={repo}
+            onChange={(event) => onRepoChange(event.target.value)}
+            list="cural-repos"
+            required
+            placeholder={
+              tone === "legacy"
+                ? "https://github.com/org/legacy"
+                : "https://github.com/org/new"
+            }
+            title={repoHint}
+            className="card-input"
+          />
+        </label>
+        <label className="block">
+          <span className="sr-only">Default branch</span>
+          <input
+            value={branch}
+            onChange={(event) => onBranchChange(event.target.value)}
+            placeholder="main"
+            title="Optional branch, tag, or commit SHA"
+            className="card-input font-mono text-[12px]"
+          />
+        </label>
+      </div>
+      <p className="mt-1.5 truncate text-[11px] leading-4 text-muted" title={repoHint}>
+        {repoHint}
+      </p>
+    </section>
+  );
+}
+
+function ArchitectureSketch({ className }: { className?: string }) {
+  return (
+    <svg
+      className={className}
+      width="220"
+      height="88"
+      viewBox="0 0 220 88"
+      fill="none"
+      aria-hidden
+    >
+      <text x="4" y="11" fill="var(--muted)" fontSize="9" fontFamily="var(--font-geist-sans)">
+        Legacy
+      </text>
+      <rect x="4" y="18" width="72" height="18" rx="5" fill="var(--node)" stroke="var(--line)" />
+      <text x="10" y="30" fill="var(--ink)" fontSize="9" fontFamily="var(--font-geist-sans)">
+        ChatController
+      </text>
+      <rect x="4" y="40" width="72" height="18" rx="5" fill="var(--node)" stroke="var(--line)" />
+      <text x="10" y="52" fill="var(--ink)" fontSize="9" fontFamily="var(--font-geist-sans)">
+        In-process bus
+      </text>
+      <rect x="4" y="62" width="72" height="18" rx="5" fill="var(--node)" stroke="var(--line)" />
+      <text x="8" y="74" fill="var(--ink)" fontSize="9" fontFamily="var(--font-geist-sans)">
+        ChatRequestSaga
+      </text>
+
+      <path
+        d="M88 48h20"
+        stroke="var(--muted)"
+        strokeWidth="1.4"
+        markerEnd="url(#setup-arrow)"
+      />
+      <defs>
+        <marker
+          id="setup-arrow"
+          markerWidth="6"
+          markerHeight="6"
+          refX="5"
+          refY="3"
+          orient="auto"
+        >
+          <path d="M0 0L6 3L0 6" fill="var(--muted)" />
+        </marker>
+      </defs>
+
+      <text x="124" y="11" fill="var(--accent)" fontSize="9" fontFamily="var(--font-geist-sans)">
+        Target
+      </text>
+      <rect
+        x="124"
+        y="18"
+        width="88"
+        height="18"
+        rx="5"
+        fill="var(--accent-soft)"
+        stroke="var(--accent)"
+      />
+      <text x="132" y="30" fill="var(--ink)" fontSize="9" fontFamily="var(--font-geist-sans)">
+        ChatService
+      </text>
+      <rect
+        x="124"
+        y="40"
+        width="88"
+        height="18"
+        rx="5"
+        fill="var(--accent-soft)"
+        stroke="var(--accent)"
+      />
+      <text x="132" y="52" fill="var(--ink)" fontSize="9" fontFamily="var(--font-geist-sans)">
+        DomainRouter
+      </text>
+      <rect
+        x="124"
+        y="62"
+        width="88"
+        height="18"
+        rx="5"
+        fill="var(--accent-soft)"
+        stroke="var(--accent)"
+      />
+      <text x="132" y="74" fill="var(--ink)" fontSize="9" fontFamily="var(--font-geist-sans)">
+        AnswerGenerator
+      </text>
+    </svg>
+  );
+}
+
+function GitHubIcon() {
+  return (
+    <svg className="h-3.5 w-3.5" viewBox="0 0 16 16" fill="currentColor" aria-hidden>
+      <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0 0 16 8c0-4.42-3.58-8-8-8z" />
+    </svg>
+  );
+}
+
+function SparkleIcon() {
+  return (
+    <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" aria-hidden>
+      <path
+        d="M12 3l1.4 5.2L18.5 9.5 13.4 11 12 16.5 10.6 11 5.5 9.5l5.1-1.3L12 3Z"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M18 14l.7 2.3L21 17l-2.3.7L18 20l-.7-2.3L15 17l2.3-.7L18 14Z"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinejoin="round"
+      />
+    </svg>
   );
 }
