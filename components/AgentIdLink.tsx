@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { cursorDesktopUrl, cursorWebUrl } from "@/lib/cursor-links";
 import { isCloudAgentId } from "@/lib/types";
 
 export function AgentIdLink({
@@ -22,8 +23,8 @@ export function AgentIdLink({
   }
   if (!isCloudAgentId(id)) return null;
 
-  const webUrl = `https://cursor.com/agents/${id}`;
-  const desktopUrl = `cursor://anysphere.cursor-deeplink/background-agent?bcId=${id}`;
+  const webUrl = cursorWebUrl(id);
+  const desktopUrl = cursorDesktopUrl(id);
 
   async function copyId() {
     await navigator.clipboard.writeText(id);

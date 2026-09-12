@@ -3,13 +3,14 @@
 import { useState } from "react";
 import Link from "next/link";
 import { ArchitecturePane } from "@/components/ArchitecturePane";
-import { BoardChrome, BoardOverflowItem } from "@/components/BoardChrome";
+import { BoardChrome, BoardOverflowItem, type BoardView } from "@/components/BoardChrome";
+import { CursorBriefPanel } from "@/components/CursorBriefPanel";
 import { EvidencePanel } from "@/components/EvidencePanel";
 import { PHASE_LABEL } from "@/lib/types";
 import type { RefactorArchive } from "@/lib/archive/types";
 import { archiveArtifactUrl } from "@/lib/archive/types";
 
-type View = "architecture" | "evidence";
+type View = BoardView;
 
 export function ArchiveBoard({ archive }: { archive: RefactorArchive }) {
   const [view, setView] = useState<View>("architecture");
@@ -53,6 +54,30 @@ export function ArchiveBoard({ archive }: { archive: RefactorArchive }) {
           branches={archive.runBranches}
           journeys={archive.journeys}
           archiveId={archive.id}
+        />
+      ) : view === "cursor" ? (
+        <CursorBriefPanel
+          prompt={archive.prompt}
+          envName={archive.envName}
+          legacyRepo={archive.legacyRepo}
+          targetRepo={archive.targetRepo}
+          chats={[
+            {
+              label: "Analyze",
+              detail: "Maps current and target architecture from the idea.",
+              id: archive.analyzeAgentId,
+            },
+            {
+              label: "Execute",
+              detail: "Implements the frozen target specs.",
+              id: archive.executeAgentId,
+            },
+            {
+              label: "E2E user testing",
+              detail: "Walks both apps and compares outcomes.",
+              id: archive.evaluationAgentId,
+            },
+          ]}
         />
       ) : (
         <div className="flex min-h-0 flex-1">

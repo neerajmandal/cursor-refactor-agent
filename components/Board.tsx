@@ -10,7 +10,8 @@ import {
 } from "@liveblocks/react/suspense";
 import { AgentIdLink } from "@/components/AgentIdLink";
 import { ArchitecturePane } from "@/components/ArchitecturePane";
-import { BoardChrome, BoardOverflowItem } from "@/components/BoardChrome";
+import { BoardChrome, BoardOverflowItem, type BoardView } from "@/components/BoardChrome";
+import { CursorBriefPanel } from "@/components/CursorBriefPanel";
 import { EvidencePanel } from "@/components/EvidencePanel";
 import { SpecInspector } from "@/components/SpecInspector";
 import { persistBoardArchiveClient } from "@/lib/archive/client";
@@ -36,7 +37,7 @@ import {
   type WorkItem,
 } from "@/lib/types";
 
-type View = "architecture" | "evidence";
+type View = BoardView;
 type AnalyzeResponse = { agentId?: string; runId?: string; error?: string };
 type PollResponse = {
   status?: string;
@@ -973,6 +974,30 @@ export function Board() {
           evaluationAgentId={evaluationAgentId}
           branches={runBranches}
           journeys={journeys}
+        />
+      ) : view === "cursor" ? (
+        <CursorBriefPanel
+          prompt={prompt}
+          envName={envName}
+          legacyRepo={legacyRepo}
+          targetRepo={targetRepo}
+          chats={[
+            {
+              label: "Analyze",
+              detail: "Maps current and target architecture from the idea.",
+              id: analyzeAgentId,
+            },
+            {
+              label: "Execute",
+              detail: "Implements the frozen target specs.",
+              id: executeAgentId,
+            },
+            {
+              label: "E2E user testing",
+              detail: "Walks both apps and compares outcomes.",
+              id: evaluationAgentId,
+            },
+          ]}
         />
       ) : (
         <div className="flex min-h-0 flex-1">

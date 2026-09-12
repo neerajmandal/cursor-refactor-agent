@@ -2,7 +2,8 @@
 
 import { useState } from "react";
 import { ArchitecturePane } from "@/components/ArchitecturePane";
-import { BoardChrome } from "@/components/BoardChrome";
+import { BoardChrome, type BoardView } from "@/components/BoardChrome";
+import { CursorBriefPanel } from "@/components/CursorBriefPanel";
 import { EvidencePanel } from "@/components/EvidencePanel";
 import { SpecPanel } from "@/components/SpecPanel";
 import { SAMPLE_AS_IS, SAMPLE_TO_BE } from "@/lib/sample-board";
@@ -64,7 +65,7 @@ export function PreviewBoard() {
   const [toBe, setToBe] = useState<Graph>(SAMPLE_TO_BE);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [phase, setPhase] = useState<Phase>("aligning");
-  const [view, setView] = useState<"architecture" | "evidence">("architecture");
+  const [view, setView] = useState<BoardView>("architecture");
 
   const selected = toBe.nodes.find((node) => node.id === selectedId);
   const running = phase === "executing";
@@ -117,7 +118,31 @@ export function PreviewBoard() {
         }
       />
 
-      {view === "evidence" ? (
+      {view === "cursor" ? (
+        <CursorBriefPanel
+          prompt="Keep the HelloDrive FO48 question path. Match domain, answer text, and citations, but drop the saga bus."
+          envName="inds-support-agent"
+          legacyRepo="https://github.com/acme/legacy-support"
+          targetRepo="https://github.com/acme/target-support"
+          chats={[
+            {
+              label: "Analyze",
+              detail: "Maps current and target architecture from the idea.",
+              id: "bc-demo-analyze",
+            },
+            {
+              label: "Execute",
+              detail: "Implements the frozen target specs.",
+              id: "bc-demo-execute",
+            },
+            {
+              label: "E2E user testing",
+              detail: "Walks both apps and compares outcomes.",
+              id: "bc-demo-evaluate",
+            },
+          ]}
+        />
+      ) : view === "evidence" ? (
         <EvidencePanel
           workItems={demoItems(phase === "done" ? "done" : running ? "running" : "pending")}
           report={phase === "done" ? PASSED_REPORT : null}

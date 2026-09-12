@@ -4,11 +4,12 @@ import Link from "next/link";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { CuralLogo } from "@/components/CuralLogo";
 
-export type BoardView = "architecture" | "evidence";
+export type BoardView = "architecture" | "evidence" | "cursor";
 
 const VIEW_LABEL: Record<BoardView, string> = {
   architecture: "Architecture",
   evidence: "Evidence",
+  cursor: "Cursor",
 };
 
 export function BoardChrome({
@@ -77,7 +78,7 @@ export function BoardChrome({
         </div>
       </div>
       <div className="flex gap-6 px-4">
-        {(["architecture", "evidence"] as const).map((item) => (
+        {(["architecture", "evidence", "cursor"] as const).map((item) => (
           <button
             key={item}
             type="button"
