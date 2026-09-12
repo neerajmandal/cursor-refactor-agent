@@ -29,6 +29,7 @@ export function SpecInspector({
       });
       storage.set("executionSnapshot", null);
       storage.set("evaluationReport", null);
+      storage.set("evaluationVideos", []);
       storage.set("phase", "aligning");
     },
     [],

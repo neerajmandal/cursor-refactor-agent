@@ -38,7 +38,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   return (
     <div className="flex h-full min-h-0">
       <aside className="flex w-[200px] shrink-0 flex-col border-r border-line bg-node px-2.5 py-4">
-        <Link href="/" className="px-2.5 font-serif text-[24px] leading-none tracking-tight text-ink">
+        <Link
+          href="/"
+          className="px-2.5 font-serif text-[32px] font-bold leading-none tracking-wide text-ink"
+        >
           Cural
         </Link>
 

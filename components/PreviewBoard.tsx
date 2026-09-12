@@ -17,6 +17,12 @@ import type {
 const PASSED_REPORT: EvaluationReport = {
   status: "passed",
   summary: "The frozen ask-a-question journey produced the same observable answer and failure behavior.",
+  videos: [{
+    journeyId: "ask-a-question",
+    path: "artifacts/ask-a-question-walkthrough.mp4",
+    label: "VM walkthrough · ask a question",
+    url: "https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4",
+  }],
   journeys: [{
     journeyId: "ask-a-question",
     status: "passed",
@@ -26,7 +32,7 @@ const PASSED_REPORT: EvaluationReport = {
       legacy: "200 · ChatResponse with answer",
       target: "200 · ChatResponse with answer",
       difference: "",
-      evidence: ["tests/parity/report.json", "artifacts/answer.png"],
+      evidence: ["artifacts/ask-a-question-walkthrough.mp4", "artifacts/answer.png"],
     }],
   }],
 };
@@ -115,6 +121,8 @@ export function PreviewBoard() {
         <EvidencePanel
           workItems={demoItems(phase === "done" ? "done" : running ? "running" : "pending")}
           report={phase === "done" ? PASSED_REPORT : null}
+          videos={phase === "done" ? PASSED_REPORT.videos : []}
+          evaluationAgentId="bc-demo-evaluate"
           branches={[{
             repoUrl: "https://github.com/acme/target",
             branch: "cursor/migration-proof",

@@ -34,6 +34,7 @@ function graphToFlow(
   nodeStatus: Record<string, NodeStatus>,
   selectedId: string | null,
   emphasizeHub: boolean,
+  highlightIds?: string[] | null,
 ): { nodes: ComponentFlowNode[]; edges: Edge[] } {
   const tree = layoutGraph(graph);
   const storedPositions = new Map(
@@ -47,7 +48,7 @@ function graphToFlow(
   }
   let emphasizedId: string | null = null;
   let maxChildren = 1;
-  if (emphasizeHub) {
+  if (emphasizeHub && !highlightIds?.length) {
     for (const [id, count] of childCount) {
       if (count > maxChildren) {
         maxChildren = count;
@@ -55,6 +56,7 @@ function graphToFlow(
       }
     }
   }
+  const highlight = highlightIds?.length ? new Set(highlightIds) : null;
   return {
     nodes: tree.nodes.map((node) => ({
       id: node.id,
@@ -63,26 +65,38 @@ function graphToFlow(
       sourcePosition: Position.Bottom,
       targetPosition: Position.Top,
       selected: node.id === selectedId,
+      style: highlight
+        ? { opacity: highlight.has(node.id) ? 1 : 0.28, transition: "opacity 180ms ease" }
+        : undefined,
       data: {
         label: node.label,
         kind: node.kind,
         status: nodeStatus[node.id],
-        emphasized: node.id === emphasizedId,
+        emphasized: highlight ? highlight.has(node.id) : node.id === emphasizedId,
       },
     })),
-    edges: tree.edges.map((edge, index) => ({
-      id: `${edge.from}-${edge.to}-${index}`,
-      source: edge.from,
-      target: edge.to,
-      type: "step",
-      style: { stroke: "#9ca3af", strokeDasharray: "5 4" },
-      markerEnd: {
-        type: MarkerType.ArrowClosed,
-        color: "#9ca3af",
-        width: 16,
-        height: 16,
-      },
-    })),
+    edges: tree.edges.map((edge, index) => {
+      const related =
+        !highlight || (highlight.has(edge.from) && highlight.has(edge.to));
+      return {
+        id: `${edge.from}-${edge.to}-${index}`,
+        source: edge.from,
+        target: edge.to,
+        type: "step",
+        style: {
+          stroke: related ? "#9ca3af" : "#d1d5db",
+          strokeDasharray: "5 4",
+          opacity: related ? 1 : 0.25,
+          transition: "opacity 180ms ease",
+        },
+        markerEnd: {
+          type: MarkerType.ArrowClosed,
+          color: related ? "#9ca3af" : "#d1d5db",
+          width: 16,
+          height: 16,
+        },
+      };
+    }),
   };
 }
 
@@ -103,6 +117,7 @@ function PaneInner({
   selectable,
   selectedId,
   nodeStatus,
+  highlightIds,
   collab,
   onSelect,
   onMove,
@@ -115,6 +130,7 @@ function PaneInner({
   selectable: boolean;
   selectedId: string | null;
   nodeStatus: Record<string, NodeStatus>;
+  highlightIds?: string[] | null;
   collab?: boolean;
   onSelect: (id: string | null) => void;
   onMove: (id: string, x: number, y: number) => void;
@@ -126,9 +142,10 @@ function PaneInner({
   const previousKey = useRef("");
   const layoutKey = topologyKey(graph);
   const emphasizeHub = pane === "toBe";
+  const highlightKey = highlightIds?.join(",") ?? "";
   const { nodes, edges } = useMemo(
-    () => graphToFlow(graph, nodeStatus, selectedId, emphasizeHub),
-    [emphasizeHub, graph, nodeStatus, selectedId],
+    () => graphToFlow(graph, nodeStatus, selectedId, emphasizeHub, highlightIds),
+    [emphasizeHub, graph, highlightIds, highlightKey, nodeStatus, selectedId],
   );
   useEffect(() => {
     if (graph.nodes.length === 0) {
@@ -211,6 +228,7 @@ export function ArchitecturePane(props: {
   selectable: boolean;
   selectedId: string | null;
   nodeStatus: Record<string, NodeStatus>;
+  highlightIds?: string[] | null;
   collab?: boolean;
   onSelect: (id: string | null) => void;
   onMove: (id: string, x: number, y: number) => void;

@@ -1,6 +1,7 @@
 import type {
   EvaluationCheck,
   EvaluationReport,
+  EvaluationVideo,
   ExecutionReport,
   JourneyEvaluation,
   NodeStatus,
@@ -127,6 +128,50 @@ function normalizeJourneyEvaluation(value: unknown): JourneyEvaluation | null {
   };
 }
 
+export function normalizeEvaluationVideo(value: unknown): EvaluationVideo | null {
+  const record = asRecord(value);
+  if (!record || typeof record.path !== "string" || !record.path.trim()) {
+    return null;
+  }
+  const path = record.path.trim();
+  return {
+    path,
+    label:
+      typeof record.label === "string" && record.label.trim()
+        ? record.label.trim()
+        : path.split("/").pop() || path,
+    journeyId:
+      typeof record.journeyId === "string" && record.journeyId.trim()
+        ? record.journeyId.trim()
+        : undefined,
+    sizeBytes:
+      typeof record.sizeBytes === "number" && Number.isFinite(record.sizeBytes)
+        ? record.sizeBytes
+        : undefined,
+    updatedAt:
+      typeof record.updatedAt === "string" ? record.updatedAt : undefined,
+    url: typeof record.url === "string" && record.url.trim()
+      ? record.url.trim()
+      : undefined,
+  };
+}
+
+export function isVideoArtifactPath(path: string): boolean {
+  return /\.(mp4|webm|mov|m4v)$/i.test(path);
+}
+
+export function mergeEvaluationVideos(
+  reported: EvaluationVideo[],
+  artifacts: EvaluationVideo[],
+): EvaluationVideo[] {
+  const byPath = new Map<string, EvaluationVideo>();
+  for (const video of [...artifacts, ...reported]) {
+    const existing = byPath.get(video.path);
+    byPath.set(video.path, existing ? { ...existing, ...video } : video);
+  }
+  return [...byPath.values()];
+}
+
 export function extractEvaluationReport(text: string): EvaluationReport | null {
   const record = parseMarkedJson(text, "CURAL_EVALUATION_REPORT");
   if (!record || !Array.isArray(record.journeys)) return null;
@@ -136,6 +181,13 @@ export function extractEvaluationReport(text: string): EvaluationReport | null {
   });
   if (!journeys.length) return null;
 
+  const videos = Array.isArray(record.videos)
+    ? record.videos.flatMap((item) => {
+        const video = normalizeEvaluationVideo(item);
+        return video ? [video] : [];
+      })
+    : [];
+
   return {
     status:
       record.status === "passed" &&
@@ -144,6 +196,7 @@ export function extractEvaluationReport(text: string): EvaluationReport | null {
         : "failed",
     summary: typeof record.summary === "string" ? record.summary : "",
     journeys,
+    videos,
   };
 }
 
@@ -159,4 +212,12 @@ export function runBranches(value: unknown): RunBranch[] {
       prUrl: typeof branch.prUrl === "string" ? branch.prUrl : undefined,
     }];
   });
+}
+
+export function videoContentType(path: string): string {
+  const lower = path.toLowerCase();
+  if (lower.endsWith(".webm")) return "video/webm";
+  if (lower.endsWith(".mov")) return "video/quicktime";
+  if (lower.endsWith(".m4v")) return "video/x-m4v";
+  return "video/mp4";
 }

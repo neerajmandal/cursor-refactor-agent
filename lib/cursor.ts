@@ -12,11 +12,15 @@ import {
   extractEvaluationReport,
   extractExecutionReport,
   extractProgress,
+  isVideoArtifactPath,
+  mergeEvaluationVideos,
   runBranches,
+  videoContentType,
 } from "@/lib/reports";
 import {
   isCloudAgentId,
   type EvaluationReport,
+  type EvaluationVideo,
   type ExecutionReport,
   type Graph,
   type Journey,
@@ -198,7 +202,7 @@ export async function startEvaluation(input: {
   const agent = await Agent.create({
     apiKey,
     model: MODEL,
-    name: "Cural parity evaluation",
+    name: "Cural end-to-end user testing",
     cloud: {
       ...cloudOptions(input.envName, [
         { url: input.legacyRepo, startingRef: input.legacyRef || undefined },
@@ -206,7 +210,7 @@ export async function startEvaluation(input: {
       ]),
       skipReviewerRequest: true,
       metadata: {
-        workflow: "parity-evaluation",
+        workflow: "e2e-user-testing",
         snapshotId: input.snapshot.id,
       },
       ...(Object.keys(envVars).length ? { envVars } : {}),
@@ -217,6 +221,57 @@ export async function startEvaluation(input: {
       idempotencyKey: input.requestKey,
     });
     return { agentId: agent.agentId, runId: run.id };
+  } finally {
+    agent.close();
+  }
+}
+
+export async function listVideoArtifacts(agentId: string): Promise<EvaluationVideo[]> {
+  if (!isCloudAgentId(agentId)) return [];
+  const apiKey = requireApiKey();
+  const agent = await Agent.resume(agentId, { apiKey });
+  try {
+    const artifacts = await agent.listArtifacts();
+    return artifacts
+      .filter((artifact) => isVideoArtifactPath(artifact.path))
+      .map((artifact) => ({
+        path: artifact.path,
+        label: artifact.path.split("/").pop() || artifact.path,
+        sizeBytes: artifact.sizeBytes,
+        updatedAt: artifact.updatedAt,
+      }));
+  } catch {
+    return [];
+  } finally {
+    agent.close();
+  }
+}
+
+export async function downloadAgentArtifact(
+  agentId: string,
+  path: string,
+): Promise<{ buffer: Buffer; contentType: string }> {
+  if (!isCloudAgentId(agentId)) {
+    throw new Error("Only cloud agent artifacts can be downloaded");
+  }
+  if (!path || path.includes("..") || path.startsWith("/")) {
+    throw new Error("Invalid artifact path");
+  }
+  const apiKey = requireApiKey();
+  const agent = await Agent.resume(agentId, { apiKey });
+  try {
+    const artifacts = await agent.listArtifacts();
+    const match = artifacts.find((artifact) => artifact.path === path);
+    if (!match) {
+      throw new Error("Artifact not found on agent");
+    }
+    const buffer = await agent.downloadArtifact(path);
+    return {
+      buffer,
+      contentType: isVideoArtifactPath(path)
+        ? videoContentType(path)
+        : "application/octet-stream",
+    };
   } finally {
     agent.close();
   }
@@ -237,6 +292,7 @@ export async function pollRun(input: {
   nodeStatus?: Record<string, NodeStatus>;
   executionReport?: ExecutionReport;
   evaluationReport?: EvaluationReport;
+  evaluationVideos?: EvaluationVideo[];
   branches?: RunBranch[];
 }> {
   const apiKey = requireApiKey();
@@ -325,10 +381,16 @@ export async function pollRun(input: {
         branches,
       };
     }
+    const listed = await listVideoArtifacts(input.agentId);
+    const evaluationVideos = mergeEvaluationVideos(
+      evaluationReport.videos,
+      listed,
+    );
     return {
       status: run.status,
       result: text,
-      evaluationReport,
+      evaluationReport: { ...evaluationReport, videos: evaluationVideos },
+      evaluationVideos,
       branches,
     };
   }

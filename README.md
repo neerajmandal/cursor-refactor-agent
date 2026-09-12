@@ -13,8 +13,9 @@ The workflow is:
 4. A coordinator delegates each frozen component spec to a named subagent and
    opens a target-repository pull request.
 5. A separate cloud evaluation run executes the frozen journey against both
-   applications. Cural shows `Parity proven` only when every required check
-   passes.
+   applications inside a Cursor VM using computer use. Cural shows
+   `Parity proven` only when every required check passes, and posts the VM
+   walkthrough videos on the evidence board.
 
 ## Artifact model
 
@@ -52,8 +53,9 @@ documented commands.
 ## Behavioral parity contract
 
 Characterization captures what the legacy app does. End-to-end acceptance
-checks exercise frozen user journeys. Differential comparison determines
-whether normalized, user-observable outcomes match.
+checks exercise frozen user journeys inside a Cursor cloud VM with computer
+use (not Playwright). Differential comparison determines whether normalized,
+user-observable outcomes match.
 
 Normalization is explicit and reviewable:
 
@@ -80,6 +82,10 @@ Open [http://localhost:3000/preview](http://localhost:3000/preview), approve the
 sample plan, and execute it. The scripted preview walks through execution,
 evaluation, and the parity evidence surface without consuming cloud-agent
 credits.
+
+A concept preview of the fuller diagnosis workflow (clean story diagrams plus
+System / Findings / Evidence) lives at
+[http://localhost:3000/preview/vision](http://localhost:3000/preview/vision).
 
 The real board starts at [http://localhost:3000](http://localhost:3000).
 

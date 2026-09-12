@@ -8,17 +8,23 @@ const STEPS = [
   "Connect systems",
   "Review architecture",
   "Execute",
-  "Evaluate",
+  "E2E user testing",
 ] as const;
 
 export function SetupForm() {
   const router = useRouter();
-  const [envName, setEnvName] = useState("");
-  const [legacyRepo, setLegacyRepo] = useState("");
-  const [targetRepo, setTargetRepo] = useState("");
+  const [envName, setEnvName] = useState("inds-support-agent");
+  const [legacyRepo, setLegacyRepo] = useState(
+    "https://github.com/neerajmandal/legacy-industrial-support",
+  );
+  const [targetRepo, setTargetRepo] = useState(
+    "https://github.com/neerajmandal/modern-industrial-support-agent",
+  );
   const [legacyRef, setLegacyRef] = useState("");
   const [targetRef, setTargetRef] = useState("");
-  const [prompt, setPrompt] = useState("");
+  const [prompt, setPrompt] = useState(
+    "Migrate the legacy industrial support app into the modern industrial support agent. Use an in-memory orchestrator and move away from the service bus, while keeping end-user outcomes equivalent.",
+  );
   const [legacyBaseUrl, setLegacyBaseUrl] = useState("");
   const [targetBaseUrl, setTargetBaseUrl] = useState("");
   const [fixtureCommand, setFixtureCommand] = useState("");
@@ -85,7 +91,6 @@ export function SetupForm() {
             Set up your migration
           </h1>
         </div>
-        <ArchitectureSketch className="hidden shrink-0 xl:block" />
       </header>
 
       <ol className="mt-4 flex shrink-0 flex-wrap items-center gap-x-2 gap-y-1.5">
@@ -203,7 +208,7 @@ export function SetupForm() {
               </summary>
               <div className="absolute right-0 z-10 mt-2 w-[min(100vw-3rem,22rem)] rounded-xl border border-line bg-node p-3 shadow-sm">
                 <p className="text-[11px] leading-4 text-muted">
-                  Optional. Used after execution for reproducible evaluation.
+                  Optional. Used after execution for reproducible end-to-end user testing.
                 </p>
                 <div className="mt-2 space-y-2">
                   <input
@@ -250,7 +255,7 @@ export function SetupForm() {
 
         <footer className="flex shrink-0 items-center justify-between gap-4 border-t border-line pt-3">
           <p className="hidden text-[12px] leading-4 text-muted sm:block">
-            Next: analyze → review on the board → execute → evaluate.
+            Next: analyze → review on the board → execute → E2E user testing.
           </p>
           <button
             type="submit"
@@ -344,94 +349,6 @@ function SystemCard({
         {repoHint}
       </p>
     </section>
-  );
-}
-
-function ArchitectureSketch({ className }: { className?: string }) {
-  return (
-    <svg
-      className={className}
-      width="220"
-      height="88"
-      viewBox="0 0 220 88"
-      fill="none"
-      aria-hidden
-    >
-      <text x="4" y="11" fill="var(--muted)" fontSize="9" fontFamily="var(--font-geist-sans)">
-        Legacy
-      </text>
-      <rect x="4" y="18" width="72" height="18" rx="5" fill="var(--node)" stroke="var(--line)" />
-      <text x="10" y="30" fill="var(--ink)" fontSize="9" fontFamily="var(--font-geist-sans)">
-        ChatController
-      </text>
-      <rect x="4" y="40" width="72" height="18" rx="5" fill="var(--node)" stroke="var(--line)" />
-      <text x="10" y="52" fill="var(--ink)" fontSize="9" fontFamily="var(--font-geist-sans)">
-        In-process bus
-      </text>
-      <rect x="4" y="62" width="72" height="18" rx="5" fill="var(--node)" stroke="var(--line)" />
-      <text x="8" y="74" fill="var(--ink)" fontSize="9" fontFamily="var(--font-geist-sans)">
-        ChatRequestSaga
-      </text>
-
-      <path
-        d="M88 48h20"
-        stroke="var(--muted)"
-        strokeWidth="1.4"
-        markerEnd="url(#setup-arrow)"
-      />
-      <defs>
-        <marker
-          id="setup-arrow"
-          markerWidth="6"
-          markerHeight="6"
-          refX="5"
-          refY="3"
-          orient="auto"
-        >
-          <path d="M0 0L6 3L0 6" fill="var(--muted)" />
-        </marker>
-      </defs>
-
-      <text x="124" y="11" fill="var(--accent)" fontSize="9" fontFamily="var(--font-geist-sans)">
-        Target
-      </text>
-      <rect
-        x="124"
-        y="18"
-        width="88"
-        height="18"
-        rx="5"
-        fill="var(--accent-soft)"
-        stroke="var(--accent)"
-      />
-      <text x="132" y="30" fill="var(--ink)" fontSize="9" fontFamily="var(--font-geist-sans)">
-        ChatService
-      </text>
-      <rect
-        x="124"
-        y="40"
-        width="88"
-        height="18"
-        rx="5"
-        fill="var(--accent-soft)"
-        stroke="var(--accent)"
-      />
-      <text x="132" y="52" fill="var(--ink)" fontSize="9" fontFamily="var(--font-geist-sans)">
-        DomainRouter
-      </text>
-      <rect
-        x="124"
-        y="62"
-        width="88"
-        height="18"
-        rx="5"
-        fill="var(--accent-soft)"
-        stroke="var(--accent)"
-      />
-      <text x="132" y="74" fill="var(--ink)" fontSize="9" fontFamily="var(--font-geist-sans)">
-        AnswerGenerator
-      </text>
-    </svg>
   );
 }
 

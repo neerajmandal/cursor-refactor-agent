@@ -2,6 +2,7 @@
 
 import type {
   EvaluationReport,
+  EvaluationVideo,
   Journey,
   RunBranch,
   WorkItem,
@@ -14,18 +15,31 @@ const STATUS_TEXT = {
   error: "Needs work",
 } as const;
 
+function videoSrc(video: EvaluationVideo, agentId?: string): string | null {
+  if (video.url) return video.url;
+  if (!agentId || !video.path) return null;
+  return `/api/agents/${agentId}/artifacts?path=${encodeURIComponent(video.path)}`;
+}
+
 export function EvidencePanel({
   workItems,
   report,
+  videos = [],
+  evaluationAgentId,
   branches,
   journeys,
 }: {
   workItems: Record<string, WorkItem>;
   report: EvaluationReport | null;
+  videos?: EvaluationVideo[];
+  evaluationAgentId?: string;
   branches: RunBranch[];
   journeys: Journey[];
 }) {
   const items = Object.values(workItems);
+  const walkthroughs = videos.length
+    ? videos
+    : report?.videos ?? [];
 
   return (
     <div className="min-h-0 flex-1 overflow-y-auto px-6 py-6 md:px-10">
@@ -33,19 +47,57 @@ export function EvidencePanel({
         <div className="grid gap-10 lg:grid-cols-[minmax(0,1fr)_320px]">
           <section>
             <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-muted">
-              Behavioral feature parity
+              End-to-end user testing
             </p>
             <h2 className="mt-2 font-serif text-4xl tracking-tight">
               {report
                 ? report.status === "passed"
-                  ? "Parity proven"
+                  ? "E2E user testing passed"
                   : "Behavior differs"
                 : "Evidence pending"}
             </h2>
             <p className="mt-3 max-w-2xl text-sm leading-6 text-muted">
               {report?.summary ||
-                "Cural will compare frozen end-user outcomes after component execution completes."}
+                "Cural will compare frozen end-user outcomes after the Cursor VM walks both apps."}
             </p>
+
+            {walkthroughs.length ? (
+              <div className="mt-8 border-t border-line pt-6">
+                <h3 className="text-[11px] font-medium uppercase tracking-[0.16em] text-muted">
+                  VM walkthrough videos
+                </h3>
+                <div className="mt-4 space-y-5">
+                  {walkthroughs.map((video) => {
+                    const src = videoSrc(video, evaluationAgentId);
+                    return (
+                      <figure key={video.path} className="space-y-2">
+                        <figcaption className="flex flex-wrap items-baseline justify-between gap-2 text-[13px]">
+                          <span className="font-medium">{video.label}</span>
+                          {video.journeyId ? (
+                            <span className="font-mono text-[11px] text-muted">
+                              {video.journeyId}
+                            </span>
+                          ) : null}
+                        </figcaption>
+                        {src ? (
+                          <video
+                            controls
+                            playsInline
+                            preload="metadata"
+                            className="aspect-video w-full bg-ink/5"
+                            src={src}
+                          >
+                            <a href={src}>Download walkthrough video</a>
+                          </video>
+                        ) : (
+                          <p className="font-mono text-[11px] text-muted">{video.path}</p>
+                        )}
+                      </figure>
+                    );
+                  })}
+                </div>
+              </div>
+            ) : null}
 
             <div className="mt-8 border-t border-line">
               {report?.journeys.map((journey) => (
@@ -79,7 +131,7 @@ export function EvidencePanel({
                   </div>
                 </section>
               )) ?? (
-                <p className="py-6 text-sm text-muted">No evaluation report yet.</p>
+                <p className="py-6 text-sm text-muted">No end-to-end user testing report yet.</p>
               )}
             </div>
           </section>

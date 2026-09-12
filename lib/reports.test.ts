@@ -3,6 +3,8 @@ import {
   extractEvaluationReport,
   extractExecutionReport,
   extractProgress,
+  isVideoArtifactPath,
+  mergeEvaluationVideos,
 } from "@/lib/reports";
 
 describe("strict agent result protocol", () => {
@@ -38,6 +40,7 @@ CURAL_EVALUATION_REPORT
 {
   "status":"passed",
   "summary":"Mismatch found",
+  "videos":[{"journeyId":"checkout","path":"artifacts/checkout.mp4","label":"Checkout walkthrough"}],
   "journeys":[{
     "journeyId":"checkout",
     "status":"failed",
@@ -47,7 +50,7 @@ CURAL_EVALUATION_REPORT
       "legacy":"10.00",
       "target":"11.00",
       "difference":"Totals differ",
-      "evidence":["report.json"]
+      "evidence":["artifacts/checkout.mp4"]
     }]
   }]
 }
@@ -55,5 +58,57 @@ CURAL_EVALUATION_REPORT
 `);
     expect(report?.status).toBe("failed");
     expect(report?.journeys[0].checks[0].difference).toBe("Totals differ");
+    expect(report?.videos).toEqual([{
+      journeyId: "checkout",
+      path: "artifacts/checkout.mp4",
+      label: "Checkout walkthrough",
+    }]);
+  });
+
+  it("defaults missing videos to an empty list", () => {
+    const report = extractEvaluationReport(`
+CURAL_EVALUATION_REPORT
+\`\`\`json
+{
+  "status":"passed",
+  "summary":"ok",
+  "journeys":[{
+    "journeyId":"checkout",
+    "status":"passed",
+    "checks":[{
+      "name":"Order total",
+      "status":"passed",
+      "legacy":"10.00",
+      "target":"10.00",
+      "difference":"",
+      "evidence":[]
+    }]
+  }]
+}
+\`\`\`
+`);
+    expect(report?.videos).toEqual([]);
+  });
+
+  it("merges reported videos with listed VM artifacts", () => {
+    expect(
+      mergeEvaluationVideos(
+        [{ path: "artifacts/a.mp4", label: "Reported", journeyId: "j1" }],
+        [
+          { path: "artifacts/a.mp4", label: "a.mp4", sizeBytes: 12 },
+          { path: "artifacts/b.webm", label: "b.webm", sizeBytes: 34 },
+        ],
+      ),
+    ).toEqual([
+      {
+        path: "artifacts/a.mp4",
+        label: "Reported",
+        journeyId: "j1",
+        sizeBytes: 12,
+      },
+      { path: "artifacts/b.webm", label: "b.webm", sizeBytes: 34 },
+    ]);
+    expect(isVideoArtifactPath("artifacts/demo.MP4")).toBe(true);
+    expect(isVideoArtifactPath("artifacts/report.json")).toBe(false);
   });
 });

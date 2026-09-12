@@ -110,10 +110,21 @@ export type JourneyEvaluation = {
   checks: EvaluationCheck[];
 };
 
+export type EvaluationVideo = {
+  path: string;
+  label: string;
+  journeyId?: string;
+  sizeBytes?: number;
+  updatedAt?: string;
+  /** Direct URL for preview/demo; live runs proxy via the evaluation agent. */
+  url?: string;
+};
+
 export type EvaluationReport = {
   status: "passed" | "failed";
   summary: string;
   journeys: JourneyEvaluation[];
+  videos: EvaluationVideo[];
 };
 
 export type BoardStorage = BoardSetup & {
@@ -134,6 +145,7 @@ export type BoardStorage = BoardSetup & {
   workItems: Record<string, WorkItem>;
   executionReport: ExecutionReport | null;
   evaluationReport: EvaluationReport | null;
+  evaluationVideos: EvaluationVideo[];
   runBranches: RunBranch[];
   error: string;
 };
@@ -175,6 +187,7 @@ export function createInitialBoardStorage(
     workItems: {},
     executionReport: null,
     evaluationReport: null,
+    evaluationVideos: [],
     runBranches: [],
     error: "",
   };
@@ -189,7 +202,7 @@ export const PHASE_LABEL: Record<Phase, string> = {
   analyzing_target: "Drafting target architecture",
   aligning: "Align on specs",
   executing: "Agents running",
-  evaluating: "Checking feature parity",
-  parity_failed: "Parity needs work",
-  done: "Parity proven",
+  evaluating: "End-to-end user testing",
+  parity_failed: "E2E user testing needs work",
+  done: "E2E user testing passed",
 };

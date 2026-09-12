@@ -29,9 +29,11 @@
   --color-cta: var(--cta);
   --color-good: var(--good);
   --color-bad: var(--bad);
-  --font-sans: var(--font-geist-sans);
-  --font-serif: var(--font-instrument);
-  --font-mono: var(--font-geist-mono);
+  --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display",
+    "Helvetica Neue", Helvetica, Arial, sans-serif;
+  --font-serif: "New York", "SF Pro Display", ui-serif, Georgia, "Times New Roman",
+    serif;
+  --font-mono: "SF Mono", ui-monospace, Menlo, Monaco, Consolas, monospace;
 }
 
 html,
@@ -39,7 +41,7 @@ body {
   height: 100%;
   background: var(--paper);
   color: var(--ink);
-  font-family: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  font-family: var(--font-sans);
 }
 
 .react-flow {
@@ -154,4 +156,19 @@ body {
 
 details > summary::-webkit-details-marker {
   display: none;
+}
+
+@keyframes vision-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.vision-fade {
+  animation: vision-fade-in 220ms ease-out;
 }

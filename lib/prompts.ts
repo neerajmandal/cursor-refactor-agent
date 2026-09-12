@@ -238,7 +238,7 @@ export function evaluationPrompt(input: {
     .map(journeyText)
     .join("\n\n");
 
-  return `You are the parity evaluation agent. Prove behavioral feature parity from deterministic observations; do not judge equivalence from prose or implementation similarity.
+  return `You are the end-to-end user testing agent running inside a Cursor cloud VM. Prove behavioral feature parity by exercising the frozen journeys with this VM's computer use (desktop + browser). Do not use Playwright, Cypress, Selenium, or any other external browser-automation harness. Do not judge equivalence from prose or implementation similarity.
 
 Legacy repo: ${input.legacyRepo}${input.legacyRef ? ` at ${input.legacyRef}` : ""}
 Target repo: ${input.targetRepo}${input.targetRef ? ` at ${input.targetRef}` : ""}
@@ -251,12 +251,12 @@ Required journeys frozen at execution:
 ${journeys}
 
 For each journey:
-1. Inspect source evidence and existing test commands.
-2. Create or reuse a deterministic parity harness under tests/parity in the target repo.
-3. Use separate legacy and target adapters when UI selectors or implementation details differ.
+1. Start both apps (or use the provided base URLs) and reset fixtures so the preconditions hold.
+2. Walk through the exact semantic steps yourself with computer use against the legacy app, then again against the target app.
+3. Capture user-observable outcomes (UI text, status, navigation, failures) from what you see in the VM.
 4. Apply only the frozen normalizationRules. Never hide a semantic mismatch.
-5. Run the same semantic steps against both apps and capture user-observable results.
-6. Record exact commands, logs, screenshots, or artifact paths as evidence.
+5. Record a walkthrough video artifact with the VM's built-in recording (mp4/webm/mov). Do not install a custom recorder. Prefer one video per journey that shows both apps, or separate legacy/target videos if clearer.
+6. Include commands, logs, screenshots, and video artifact paths as evidence.
 
 If either app cannot be started, fixtures are missing, or a required observation cannot be made, fail the check instead of guessing.
 
@@ -266,6 +266,13 @@ CURAL_EVALUATION_REPORT
 {
   "status": "passed|failed",
   "summary": "Short evidence-based conclusion",
+  "videos": [
+    {
+      "journeyId": "exact-journey-id",
+      "path": "artifacts/journey-walkthrough.mp4",
+      "label": "Legacy and target walkthrough"
+    }
+  ],
   "journeys": [
     {
       "journeyId": "exact-journey-id",
@@ -277,12 +284,12 @@ CURAL_EVALUATION_REPORT
           "legacy": "Normalized legacy observation",
           "target": "Normalized target observation",
           "difference": "Empty when equal, otherwise the semantic mismatch",
-          "evidence": ["command, log, screenshot, or artifact path"]
+          "evidence": ["command, log, screenshot, video, or artifact path"]
         }
       ]
     }
   ]
 }
 \`\`\`
-Include every required journey. Use passed only when every required journey and check passed.`;
+Include every required journey. Prefer at least one VM walkthrough video per required journey. Use passed only when every required journey and check passed.`;
 }
