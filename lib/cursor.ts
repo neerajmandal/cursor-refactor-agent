@@ -1,4 +1,5 @@
 import { Agent, Cursor, type AgentDefinition, type CloudAgentOptions } from "@cursor/sdk";
+import { evaluationTargetRef, executionBranchName } from "@/lib/branch";
 import { componentRefs, layoutGraph } from "@/lib/graph";
 import { extractAnalysis } from "@/lib/journey";
 import {
@@ -147,11 +148,14 @@ export async function startExecute(input: {
   const components = input.snapshot.toBe.nodes;
   const refs = componentRefs(components);
 
+  const executionBranch =
+    input.snapshot.executionBranch?.trim() ||
+    executionBranchName(input.snapshot.id);
   refs.forEach((ref, index) => {
     const node = components[index];
     agents[ref.slug] = {
       description: `Implement target component ${ref.label} (${ref.id}).`,
-      prompt: subagentPrompt(node, input),
+      prompt: subagentPrompt(node, { ...input, executionBranch }),
     };
   });
 
@@ -176,7 +180,7 @@ export async function startExecute(input: {
 
   try {
     const run = await agent.send(
-      executePrompt({ ...input, components, refs }),
+      executePrompt({ ...input, components, refs, executionBranch }),
       { idempotencyKey: input.requestKey },
     );
     return { agentId: agent.agentId, runId: run.id };
@@ -206,7 +210,11 @@ export async function startEvaluation(input: {
     cloud: {
       ...cloudOptions(input.envName, [
         { url: input.legacyRepo, startingRef: input.legacyRef || undefined },
-        { url: input.targetRepo, startingRef: input.targetRef || undefined },
+        {
+          url: input.targetRepo,
+          startingRef:
+            evaluationTargetRef(input.snapshot, input.targetRef) || undefined,
+        },
       ]),
       skipReviewerRequest: true,
       metadata: {

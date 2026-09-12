@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { evaluationTargetRef } from "@/lib/branch";
 import { startEvaluation } from "@/lib/cursor";
 import type { MigrationSnapshot } from "@/lib/types";
 
@@ -35,7 +36,7 @@ export async function POST(request: Request) {
       legacyRepo: body.legacyRepo,
       legacyRef: body.legacyRef ?? "",
       targetRepo: body.targetRepo,
-      targetRef: body.targetRef ?? "",
+      targetRef: evaluationTargetRef(body.snapshot, body.targetRef ?? ""),
       legacyBaseUrl: body.legacyBaseUrl ?? "",
       targetBaseUrl: body.targetBaseUrl ?? "",
       fixtureCommand: body.fixtureCommand ?? "",

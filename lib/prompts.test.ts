@@ -30,14 +30,19 @@ describe("execution prompts", () => {
   it("includes the frozen component spec in both parent and subagent prompts", () => {
     const parent = executePrompt({
       ...migration,
+      executionBranch: "cural/exec-snapshot-1",
       components: [component],
     });
-    const child = subagentPrompt(component, migration);
+    const child = subagentPrompt(component, {
+      ...migration,
+      executionBranch: "cural/exec-snapshot-1",
+    });
 
     for (const prompt of [parent, child]) {
       expect(prompt).toContain("resolveFault(code) -> FaultResponse");
       expect(prompt).toContain("Unknown fault returns not-found");
       expect(prompt).toContain("Device telemetry ingestion");
+      expect(prompt).toContain("cural/exec-snapshot-1");
     }
   });
 });
@@ -52,6 +57,7 @@ describe("evaluation prompts", () => {
       snapshot: {
         id: "snap-1",
         createdAt: "2026-01-01T00:00:00.000Z",
+        executionBranch: "cural/exec-snap-1",
         architectureVersion: 1,
         asIs: { nodes: [], edges: [] },
         toBe: { nodes: [], edges: [] },
@@ -76,5 +82,7 @@ describe("evaluation prompts", () => {
     expect(prompt).toMatch(/Do not use Playwright/i);
     expect(prompt).toContain("videos");
     expect(prompt).not.toContain("tests/parity");
+    expect(prompt).toContain("cural/exec-snap-1");
+    expect(prompt).toMatch(/MUST checkout and run the target app from branch/);
   });
 });

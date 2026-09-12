@@ -33,7 +33,7 @@ export function asIsPrompt(legacyRepo: string, options?: { redraw?: boolean }): 
 
 Repository: ${legacyRepo}
 
-Explore just enough to find the main request path and one critical end-user journey. Do not modify files. Do not write code. Static analysis is evidence, not proof of exhaustive feature coverage.
+Inspect the checked-out default/main branch only. Do not create a branch, do not modify files, and do not write code. Explore just enough to find the main request path and one critical end-user journey. Static analysis is evidence, not proof of exhaustive feature coverage.
 
 Return ONLY one JSON object in a fenced json code block:
 {
@@ -138,6 +138,7 @@ export function executePrompt(input: {
   legacyRef?: string;
   targetRepo: string;
   targetRef?: string;
+  executionBranch: string;
   prompt: string;
   components: GraphNode[];
   refs?: ComponentRef[];
@@ -161,10 +162,14 @@ ${spec || "No execution spec was provided."}`;
     })
     .join("\n");
 
+  const baseRef = input.targetRef?.trim() || "the default/main branch";
   return `You are the parent migration agent. Delegate. Do not implement every component yourself.
 
-Legacy reference repo: ${input.legacyRepo}
+Legacy reference repo: ${input.legacyRepo}${input.legacyRef ? ` at ${input.legacyRef}` : " on its default/main branch"} (read-only).
 Write ALL new code in the empty target repo: ${input.targetRepo}
+
+Orchestrator-assigned execution branch: ${input.executionBranch}
+Checkout the target repo from ${baseRef}, then create or switch to ${input.executionBranch} from that ref. Commit and push only on ${input.executionBranch}. Do not commit to main or ${baseRef}.
 
 Team migration intent:
 ${input.prompt}
@@ -179,7 +184,7 @@ CURAL_STATUS {"id":"<id>","status":"running"}
 CURAL_STATUS {"id":"<id>","status":"done"}
 CURAL_STATUS {"id":"<id>","status":"error"}
 
-When a subagent finishes, review its diff briefly, then continue. Run the target repository's relevant checks. Open a PR on the target repo when the migration slice is in place.
+When a subagent finishes, review its diff briefly, then continue. Run the target repository's relevant checks. Open a PR on the target repo from ${input.executionBranch} when the migration slice is in place.
 
 Your final response MUST end with this marker and one fenced JSON object:
 CURAL_EXECUTION_REPORT
@@ -197,9 +202,13 @@ Include every component exactly once. Use passed only when every component is do
 export function subagentPrompt(node: GraphNode, input: {
   legacyRepo: string;
   targetRepo: string;
+  executionBranch?: string;
   prompt: string;
 }): string {
   const specText = formatSpec(parseSpec(node.spec));
+  const branchLine = input.executionBranch
+    ? `Work only on branch ${input.executionBranch} in the target repo. Do not commit to main.\n`
+    : "";
 
   return `You implement one component of a migration.
 
@@ -209,6 +218,7 @@ Kind: ${node.kind ?? "component"}
 
 Write code in the empty target repo: ${input.targetRepo}
 Use the legacy repo only as reference: ${input.legacyRepo}
+${branchLine}
 
 Team intent:
 ${input.prompt}
@@ -238,10 +248,13 @@ export function evaluationPrompt(input: {
     .map(journeyText)
     .join("\n\n");
 
+  const targetBranch =
+    input.snapshot.executionBranch?.trim() || input.targetRef?.trim() || "";
   return `You are the end-to-end user testing agent running inside a Cursor cloud VM. Prove behavioral feature parity by exercising the frozen journeys with this VM's computer use (desktop + browser). Do not use Playwright, Cypress, Selenium, or any other external browser-automation harness. Do not judge equivalence from prose or implementation similarity.
 
-Legacy repo: ${input.legacyRepo}${input.legacyRef ? ` at ${input.legacyRef}` : ""}
-Target repo: ${input.targetRepo}${input.targetRef ? ` at ${input.targetRef}` : ""}
+Legacy repo: ${input.legacyRepo}${input.legacyRef ? ` at ${input.legacyRef}` : " on its default/main branch"} (read-only).
+Target repo: ${input.targetRepo}${targetBranch ? ` at ${targetBranch}` : ""}
+${targetBranch ? `You MUST checkout and run the target app from branch ${targetBranch} — the orchestrator-assigned execute branch. Do not test main or any other target ref.` : ""}
 Pinned alignment snapshot: ${input.snapshot.id}
 Legacy base URL: ${input.legacyBaseUrl || "Start the legacy app from its repository"}
 Target base URL: ${input.targetBaseUrl || "Start the target app from its repository"}

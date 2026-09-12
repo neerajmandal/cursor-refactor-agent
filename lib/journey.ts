@@ -1,3 +1,4 @@
+import { executionBranchName } from "@/lib/branch";
 import { normalizeGraph } from "@/lib/graph";
 import { parseSpec } from "@/lib/spec";
 import type { Graph, Journey, MigrationSnapshot, WorkItem } from "@/lib/types";
@@ -168,13 +169,15 @@ export function createMigrationSnapshot(input: {
     hash ^= payload.charCodeAt(index);
     hash = Math.imul(hash, 16777619);
   }
+  const id = `snapshot-${input.architectureVersion}-${(hash >>> 0).toString(36)}`;
   return {
-    id: `snapshot-${input.architectureVersion}-${(hash >>> 0).toString(36)}`,
+    id,
     createdAt: new Date().toISOString(),
     architectureVersion: input.architectureVersion,
     asIs: structuredClone(input.asIs),
     toBe: structuredClone(input.toBe),
     journeys: structuredClone(input.journeys),
+    executionBranch: executionBranchName(id),
   };
 }
 

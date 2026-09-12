@@ -65,6 +65,8 @@ export type MigrationSnapshot = {
   asIs: Graph;
   toBe: Graph;
   journeys: Journey[];
+  /** Orchestrator-assigned target branch for execute + E2E testing. */
+  executionBranch: string;
 };
 
 export type WorkItem = {

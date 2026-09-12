@@ -64,6 +64,7 @@ describe("migration alignment artifacts", () => {
     const workItems = workItemsFromSnapshot(snapshot);
 
     expect(snapshot.architectureVersion).toBe(2);
+    expect(snapshot.executionBranch).toBe(`cural/exec-${snapshot.id}`);
     expect(workItems.chat).toMatchObject({
       componentId: "chat",
       status: "pending",

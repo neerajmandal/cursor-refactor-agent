@@ -237,6 +237,10 @@ export function Board() {
       snapshot.toBe.nodes.map((node) => [node.id, "pending" as const]),
     ));
     storage.set("workItems", items);
+    storage.set("runBranches", [{
+      repoUrl: storage.get("targetRepo") ?? "",
+      branch: snapshot.executionBranch,
+    }]);
     storage.set("error", "");
     return runSnapshot;
   }, []);
@@ -579,7 +583,7 @@ export function Board() {
           legacyRepo,
           legacyRef,
           targetRepo,
-          targetRef,
+          targetRef: snapshot.executionBranch || targetRef,
           legacyBaseUrl,
           targetBaseUrl,
           fixtureCommand,
@@ -989,12 +993,12 @@ export function Board() {
             },
             {
               label: "Execute",
-              detail: "Implements the frozen target specs.",
+              detail: "Implements the frozen target specs on the orchestrator branch.",
               id: executeAgentId,
             },
             {
               label: "E2E user testing",
-              detail: "Walks both apps and compares outcomes.",
+              detail: "Walks both apps on the execute branch and compares outcomes.",
               id: evaluationAgentId,
             },
           ]}
