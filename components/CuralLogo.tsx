@@ -8,21 +8,12 @@ export function CuralLogo({ className = "h-5 w-5" }: { className?: string }) {
       aria-hidden
     >
       <path
-        d="M10 1.5L17.5 5.5V14.5L10 18.5L2.5 14.5V5.5L10 1.5Z"
-        fill="#1a1a1a"
+        d="M14.2 4.75a6.4 6.4 0 1 0 0 10.5"
+        stroke="currentColor"
+        strokeWidth="2.35"
+        strokeLinecap="round"
       />
-      <path
-        d="M10 1.5L17.5 5.5L10 9.5L2.5 5.5L10 1.5Z"
-        fill="#3f3f46"
-      />
-      <path
-        d="M10 9.5V18.5L17.5 14.5V5.5L10 9.5Z"
-        fill="#27272a"
-      />
-      <path
-        d="M10 9.5V18.5L2.5 14.5V5.5L10 9.5Z"
-        fill="#52525b"
-      />
+      <circle cx="15.55" cy="10" r="2.2" fill="#7c3aed" />
     </svg>
   );
 }
