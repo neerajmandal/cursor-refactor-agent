@@ -7,5 +7,11 @@ export function usesDatabaseArchive(): boolean {
 }
 
 export function getArchiveStore(): ArchiveStore {
-  return usesDatabaseArchive() ? createNeonArchiveStore() : createFileArchiveStore();
+  if (usesDatabaseArchive()) return createNeonArchiveStore();
+  if (process.env.VERCEL) {
+    throw new Error(
+      "DATABASE_URL is not set. Vercel cannot write local .data archives — add the Neon connection string to the project environment variables.",
+    );
+  }
+  return createFileArchiveStore();
 }
