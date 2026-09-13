@@ -13,6 +13,7 @@ import {
   summarizeArchive,
 } from "@/lib/archive/types";
 import { EMPTY_GRAPH, type Phase } from "@/lib/types";
+import { defaultPhaseStatuses, legacyPhase } from "@/lib/workflow";
 
 export function dataRoot(): string {
   return process.env.CURAL_DATA_DIR?.trim() || path.join(process.cwd(), ".data", "cural");
@@ -43,7 +44,21 @@ function asArchive(value: unknown): RefactorArchive | null {
     legacyBaseUrl: record.legacyBaseUrl ?? "",
     targetBaseUrl: record.targetBaseUrl ?? "",
     fixtureCommand: record.fixtureCommand ?? "",
-    phase: (record.phase as Phase) ?? "analyzing_current",
+    phase: legacyPhase(record.phase as Phase),
+    phaseStatuses:
+      record.phaseStatuses ??
+      defaultPhaseStatuses(legacyPhase(record.phase as Phase)),
+    documents: record.documents ?? {},
+    researchReport: record.researchReport ?? null,
+    implementationPlan: record.implementationPlan ?? null,
+    implementationReport: record.implementationReport ?? null,
+    blockers: record.blockers ?? [],
+    researchAgentId: record.researchAgentId ?? record.analyzeAgentId ?? "",
+    researchRunId: record.researchRunId ?? record.analyzeRunId ?? "",
+    planAgentId: record.planAgentId ?? "",
+    planRunId: record.planRunId ?? "",
+    implementAgentId: record.implementAgentId ?? record.executeAgentId ?? "",
+    implementRunId: record.implementRunId ?? record.executeRunId ?? "",
     asIs: record.asIs ?? EMPTY_GRAPH,
     toBe: record.toBe ?? EMPTY_GRAPH,
     journeys: record.journeys ?? [],
@@ -105,7 +120,10 @@ export function createFileArchiveStore(): ArchiveStore {
       }
       const existing = await readArchive(id);
       if (!existing) return false;
-      await rm(path.join(dataRoot(), id), { recursive: true, force: true });
+      await rm(path.join(/*turbopackIgnore: true*/ dataRoot(), id), {
+        recursive: true,
+        force: true,
+      });
       return true;
     },
 

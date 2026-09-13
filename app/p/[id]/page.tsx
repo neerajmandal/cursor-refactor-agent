@@ -10,7 +10,7 @@ export default async function ArchivePage({
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ view?: string | string[] }>;
+  searchParams: Promise<{ phase?: string | string[] }>;
 }) {
   const [{ id }, query] = await Promise.all([params, searchParams]);
   const archive = await getArchiveStore().get(id);
@@ -19,7 +19,7 @@ export default async function ArchivePage({
     <div className="h-svh">
       <ArchiveBoard
         archive={archive}
-        initialView={boardViewFromParam(query.view)}
+        initialView={boardViewFromParam(query.phase)}
       />
     </div>
   );

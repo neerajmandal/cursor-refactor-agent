@@ -54,7 +54,6 @@ function useStreamedStage(stages: readonly string[], active: boolean): string {
   const key = stages.join("|");
 
   useEffect(() => {
-    setIndex(0);
     if (!active || stages.length <= 1) return;
     const id = window.setInterval(() => {
       setIndex((current) => (current + 1) % stages.length);
@@ -62,5 +61,5 @@ function useStreamedStage(stages: readonly string[], active: boolean): string {
     return () => window.clearInterval(id);
   }, [active, key, stages.length]);
 
-  return stages[index] ?? stages[0] ?? "";
+  return stages[index % Math.max(stages.length, 1)] ?? stages[0] ?? "";
 }

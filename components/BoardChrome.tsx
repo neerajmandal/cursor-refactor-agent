@@ -4,24 +4,35 @@ import Link from "next/link";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { CuralLogo } from "@/components/CuralLogo";
 import { BOARD_VIEWS, type BoardView } from "@/lib/board-view";
+import type { PhaseStatuses } from "@/lib/types";
 
 export type { BoardView } from "@/lib/board-view";
 
 const VIEW_LABEL: Record<BoardView, string> = {
-  architecture: "Architecture",
-  evidence: "Evidence",
-  cursor: "Cursor",
+  research: "Research",
+  plan: "Plan",
+  implement: "Implement",
 };
+
+const STATUS_LABEL = {
+  pending: "Not started",
+  running: "In progress",
+  ready: "Ready",
+  blocked: "Blocked",
+  complete: "Complete",
+} as const;
 
 export function BoardChrome({
   view,
   onViewChange,
+  phaseStatuses,
   primaryAction,
   overflow,
   status,
 }: {
   view: BoardView;
   onViewChange: (view: BoardView) => void;
+  phaseStatuses: PhaseStatuses;
   primaryAction?: ReactNode;
   overflow?: ReactNode;
   status?: ReactNode;
@@ -52,7 +63,9 @@ export function BoardChrome({
           <CuralLogo className="h-[18px] w-[18px]" />
           <span className="text-[17px] font-semibold tracking-tight">Cural</span>
         </Link>
-        <p className="hidden text-[13px] text-muted sm:block">Architecture to outcomes</p>
+        <p className="hidden text-[13px] text-muted sm:block">
+          Enterprise refactoring workspace
+        </p>
         <div className="ml-auto flex items-center gap-3">
           {status}
           {primaryAction}
@@ -68,7 +81,7 @@ export function BoardChrome({
                 <OverflowIcon />
               </button>
               {open ? (
-                <div className="absolute right-0 top-full z-30 mt-1 min-w-44 rounded-lg border border-line bg-white py-1 shadow-sm">
+                <div className="absolute right-0 top-full z-40 mt-1 min-w-48 rounded-lg border border-line bg-white py-1 shadow-sm">
                   <div className="flex flex-col" onClick={() => setOpen(false)}>
                     {overflow}
                   </div>
@@ -78,22 +91,48 @@ export function BoardChrome({
           ) : null}
         </div>
       </div>
-      <div className="flex gap-6 px-4">
-        {BOARD_VIEWS.map((item) => (
-          <button
-            key={item}
-            type="button"
-            onClick={() => onViewChange(item)}
-            className={`border-b-2 py-2.5 text-[13px] font-medium ${
-              view === item
-                ? "border-[#7c3aed] text-ink"
-                : "border-transparent text-muted hover:text-ink"
-            }`}
-          >
-            {VIEW_LABEL[item]}
-          </button>
-        ))}
-      </div>
+
+      <nav className="flex px-4" aria-label="Refactoring phases">
+        {BOARD_VIEWS.map((item, index) => {
+          const active = view === item;
+          const phaseStatus = phaseStatuses[item];
+          const unavailable = phaseStatus === "pending";
+          return (
+            <button
+              key={item}
+              type="button"
+              disabled={unavailable}
+              onClick={() => onViewChange(item)}
+              aria-current={active ? "step" : undefined}
+              className={`group relative flex min-w-0 flex-1 items-center gap-2 border-b-2 px-2 py-2.5 text-left transition-colors sm:max-w-56 ${
+                active
+                  ? "border-accent text-ink"
+                  : "border-transparent text-muted hover:text-ink disabled:cursor-not-allowed disabled:opacity-45"
+              }`}
+            >
+              <span
+                className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[10px] font-semibold ${
+                  phaseStatus === "complete"
+                    ? "bg-good text-white"
+                    : active
+                      ? "bg-accent text-white"
+                      : "border border-line bg-paper text-muted"
+                }`}
+              >
+                {phaseStatus === "complete" ? "✓" : index + 1}
+              </span>
+              <span className="min-w-0">
+                <span className="block truncate text-[13px] font-medium">
+                  {VIEW_LABEL[item]}
+                </span>
+                <span className="hidden truncate text-[10px] text-muted sm:block">
+                  {STATUS_LABEL[phaseStatus]}
+                </span>
+              </span>
+            </button>
+          );
+        })}
+      </nav>
     </header>
   );
 }

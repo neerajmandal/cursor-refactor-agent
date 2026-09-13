@@ -3,19 +3,19 @@ import { boardViewFromParam, boardViewHref } from "@/lib/board-view";
 
 describe("board view URLs", () => {
   it("restores a valid selected tab and rejects unknown values", () => {
-    expect(boardViewFromParam("evidence")).toBe("evidence");
-    expect(boardViewFromParam(["cursor", "evidence"])).toBe("cursor");
-    expect(boardViewFromParam("unknown")).toBe("architecture");
+    expect(boardViewFromParam("plan")).toBe("plan");
+    expect(boardViewFromParam(["implement", "plan"])).toBe("implement");
+    expect(boardViewFromParam("unknown")).toBe("research");
   });
 
   it("preserves other URL state while changing tabs", () => {
     expect(
-      boardViewHref("https://cural.example/b/123?mode=live#work", "evidence"),
-    ).toBe("/b/123?mode=live&view=evidence#work");
+      boardViewHref("https://cural.example/b/123?mode=live#work", "plan"),
+    ).toBe("/b/123?mode=live&phase=plan#work");
     expect(
       boardViewHref(
-        "https://cural.example/b/123?mode=live&view=evidence#work",
-        "architecture",
+        "https://cural.example/b/123?mode=live&phase=plan#work",
+        "research",
       ),
     ).toBe("/b/123?mode=live#work");
   });

@@ -1,13 +1,10 @@
 import type { ComponentSpec } from "@/lib/spec";
 
-export type Phase =
-  | "analyzing_current"
-  | "analyzing_target"
-  | "aligning"
-  | "executing"
-  | "evaluating"
-  | "parity_failed"
-  | "done";
+export type Phase = "research" | "plan" | "implement";
+
+export type PhaseStatus = "pending" | "running" | "ready" | "blocked" | "complete";
+
+export type PhaseStatuses = Record<Phase, PhaseStatus>;
 
 export type NodeStatus = "pending" | "running" | "done" | "error";
 
@@ -30,6 +27,107 @@ export type Graph = {
   caption?: string;
   nodes: GraphNode[];
   edges: GraphEdge[];
+};
+
+export type WorkflowDocument = {
+  filename: string;
+  content: string;
+  artifactPath: string;
+  agentId: string;
+  runId: string;
+  updatedAt: string;
+};
+
+export type ResearchQuestion = {
+  question: string;
+  legacyAnswer: string;
+  generation: string;
+  display: string;
+  storage: string;
+  evidence: string[];
+};
+
+export type ResearchFinding = {
+  id: string;
+  title: string;
+  summary: string;
+  componentIds: string[];
+  evidence: string[];
+};
+
+export type ResearchReport = {
+  goal: string;
+  scope: string;
+  requestFlow: string[];
+  findings: ResearchFinding[];
+  questions: [ResearchQuestion, ResearchQuestion];
+  risks: string[];
+  openQuestions: string[];
+};
+
+export type ComponentDecision = {
+  componentId: string;
+  action: "retain" | "replace" | "remove" | "introduce";
+  rationale: string;
+};
+
+export type ImplementationStep = {
+  id: string;
+  title: string;
+  changes: string;
+  componentIds: string[];
+  dependsOn: string[];
+  doneWhen: string[];
+  status: NodeStatus;
+  summary?: string;
+};
+
+export type ImplementationPhase = {
+  id: string;
+  title: string;
+  steps: ImplementationStep[];
+};
+
+export type VerifyPlan = {
+  questions: [Pick<ResearchQuestion, "question" | "legacyAnswer">, Pick<ResearchQuestion, "question" | "legacyAnswer">];
+  instructions: string[];
+  successCriteria: string[];
+};
+
+export type ImplementationPlanReport = {
+  architectureReasoning: string;
+  decisions: ComponentDecision[];
+  phases: ImplementationPhase[];
+  verify: VerifyPlan;
+};
+
+export type VerificationObservation = {
+  question: string;
+  legacyAnswer: string;
+  modernAnswer: string;
+  evidence: string[];
+};
+
+export type ImplementationReport = {
+  status: "passed" | "failed";
+  summary: string;
+  testCycles: number;
+  observations: [VerificationObservation, VerificationObservation];
+  openAiEvidence: string[];
+  neonEvidence: string[];
+  recording: EvaluationVideo | null;
+  targetBranch: {
+    name: string;
+    commit: string;
+    pushed: boolean;
+  };
+};
+
+export type WorkflowBlocker = {
+  id: string;
+  phase: Phase;
+  message: string;
+  resolution?: string;
 };
 
 export type BoardSetup = {
@@ -90,6 +188,11 @@ export type RunBranch = {
 
 export type ExecutionReport = {
   status: "passed" | "failed";
+  targetBranch: {
+    name: string;
+    commit: string;
+    pushed: boolean;
+  };
   components: {
     id: string;
     status: "done" | "error";
@@ -133,6 +236,18 @@ export type EvaluationReport = {
 export type BoardStorage = BoardSetup & {
   extraPrompt: string;
   phase: Phase;
+  phaseStatuses: PhaseStatuses;
+  documents: Record<string, WorkflowDocument>;
+  researchReport: ResearchReport | null;
+  implementationPlan: ImplementationPlanReport | null;
+  implementationReport: ImplementationReport | null;
+  blockers: WorkflowBlocker[];
+  researchAgentId: string;
+  researchRunId: string;
+  planAgentId: string;
+  planRunId: string;
+  implementAgentId: string;
+  implementRunId: string;
   asIs: Graph;
   toBe: Graph;
   journeys: Journey[];
@@ -175,7 +290,23 @@ export function createInitialBoardStorage(
     ...EMPTY_SETUP,
     ...setup,
     extraPrompt: "",
-    phase: "analyzing_current",
+    phase: "research",
+    phaseStatuses: {
+      research: "running",
+      plan: "pending",
+      implement: "pending",
+    },
+    documents: {},
+    researchReport: null,
+    implementationPlan: null,
+    implementationReport: null,
+    blockers: [],
+    researchAgentId: "",
+    researchRunId: "",
+    planAgentId: "",
+    planRunId: "",
+    implementAgentId: "",
+    implementRunId: "",
     asIs: EMPTY_GRAPH,
     toBe: EMPTY_GRAPH,
     journeys: [],
@@ -198,16 +329,14 @@ export function createInitialBoardStorage(
   };
 }
 
+export const RECOVER_RUN_ID = "recover";
+
 export function isCloudAgentId(id: string | undefined | null): boolean {
   return Boolean(id && id.startsWith("bc-"));
 }
 
 export const PHASE_LABEL: Record<Phase, string> = {
-  analyzing_current: "Reading current architecture",
-  analyzing_target: "Drafting target architecture",
-  aligning: "Align on specs",
-  executing: "Working toward the goal",
-  evaluating: "Working toward the goal",
-  parity_failed: "Goal not met",
-  done: "Goal achieved",
+  research: "Research legacy application",
+  plan: "Define implementation plan",
+  implement: "Implement and verify",
 };

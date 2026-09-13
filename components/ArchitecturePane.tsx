@@ -149,10 +149,9 @@ function PaneInner({
   const previousKey = useRef("");
   const layoutKey = topologyKey(graph);
   const emphasizeHub = pane === "toBe";
-  const highlightKey = highlightIds?.join(",") ?? "";
   const { nodes, edges } = useMemo(
     () => graphToFlow(graph, nodeStatus, selectedId, emphasizeHub, highlightIds),
-    [emphasizeHub, graph, highlightIds, highlightKey, nodeStatus, selectedId],
+    [emphasizeHub, graph, highlightIds, nodeStatus, selectedId],
   );
   useEffect(() => {
     if (graph.nodes.length === 0) {
@@ -171,7 +170,7 @@ function PaneInner({
   }, [fitView, getViewport, graph.nodes.length, layoutKey, setViewport]);
 
   return (
-    <section className="relative flex min-h-0 min-w-0 flex-1 flex-col bg-[#f9fafb]">
+    <section className="relative flex min-h-[46svh] min-w-0 flex-1 flex-col bg-[#f9fafb] lg:min-h-0">
       <div className="flex min-h-12 shrink-0 flex-col justify-center gap-0.5 border-b border-line bg-white px-4 py-2.5">
         <h2 className="text-[11px] font-semibold uppercase tracking-[0.14em] text-ink">
           {title}

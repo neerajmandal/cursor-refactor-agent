@@ -1,5 +1,5 @@
-import { VisionPreviewBoard } from "@/components/VisionPreviewBoard";
+import { PreviewBoard } from "@/components/PreviewBoard";
 
 export default function VisionPreviewPage() {
-  return <VisionPreviewBoard />;
+  return <PreviewBoard />;
 }

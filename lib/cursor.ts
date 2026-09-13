@@ -1,126 +1,103 @@
 import { Agent, type CloudAgentOptions } from "@cursor/sdk";
 import { executionBranchName } from "@/lib/branch";
-import { executionPlan } from "@/lib/execution";
-import { componentRefs, layoutGraph } from "@/lib/graph";
-import { extractAnalysis } from "@/lib/journey";
+import { layoutGraph } from "@/lib/graph";
 import {
-  MAX_PROOF_CYCLES,
-  asIsPrompt,
-  executePrompt,
-  toBePrompt,
+  implementPrompt,
+  planPrompt,
+  researchPrompt,
 } from "@/lib/prompts";
 import {
-  extractEvaluationReport,
-  extractExecutionReport,
+  extractImplementationResult,
+  extractPlanResult,
   extractProgress,
-  failedGoalGates,
-  isVideoArtifactPath,
-  mergeEvaluationVideos,
+  extractResearchResult,
+  isStubPlanDocument,
+  isStubResearchDocument,
   redactSecrets,
   runBranches,
   videoContentType,
+  type ImplementRunResult,
+  type PlanRunResult,
+  type ResearchRunResult,
 } from "@/lib/reports";
-import {
-  isCloudAgentId,
-  type EvaluationReport,
-  type EvaluationVideo,
-  type ExecutionReport,
-  type Graph,
-  type Journey,
-  type MigrationSnapshot,
-  type NodeStatus,
-  type RunBranch,
+import type {
+  ImplementationPlanReport,
+  MigrationSnapshot,
+  NodeStatus,
+  ResearchReport,
+  RunBranch,
 } from "@/lib/types";
+import { isCloudAgentId, RECOVER_RUN_ID } from "@/lib/types";
 
 const MODEL = { id: "composer-2.5" } as const;
 
+function artifactBasename(path: string): string {
+  return path.replace(/^\/opt\/cursor\//, "").replace(/^\/+/, "");
+}
+
 export function requireApiKey(): string {
   const key = process.env.CURSOR_API_KEY?.trim();
-  if (!key) {
-    throw new Error("CURSOR_API_KEY is not set");
-  }
+  if (!key) throw new Error("CURSOR_API_KEY is not set");
   return key;
 }
 
 type RepoInput = string | { url: string; startingRef?: string };
 
-export function cloudOptions(envName: string, repos: RepoInput[]): CloudAgentOptions {
+export function cloudOptions(
+  envName: string,
+  repos: RepoInput[],
+): CloudAgentOptions {
   const named = envName.trim();
-  const checkedOutRepos = repos.flatMap((repo) => {
-    if (typeof repo === "string") return repo ? [{ url: repo }] : [];
-    return repo.url ? [repo] : [];
-  });
-  if (named) {
-    return { env: { type: "cloud", name: named } };
-  }
-  return {
-    env: { type: "cloud" },
-    repos: checkedOutRepos,
-  };
+  const checkedOutRepos = repos.flatMap((repo) =>
+    typeof repo === "string"
+      ? repo
+        ? [{ url: repo }]
+        : []
+      : repo.url
+        ? [repo]
+        : [],
+  );
+  return named
+    ? { env: { type: "cloud", name: named } }
+    : { env: { type: "cloud" }, repos: checkedOutRepos };
 }
 
-export function evaluationEnvVars(input: {
-  legacyBaseUrl: string;
-  targetBaseUrl: string;
+function urlEnvVars(input: {
+  legacyBaseUrl?: string;
+  targetBaseUrl?: string;
 }): Record<string, string> {
   return Object.fromEntries(
     [
-      ["CURAL_LEGACY_BASE_URL", input.legacyBaseUrl.trim()],
-      ["CURAL_TARGET_BASE_URL", input.targetBaseUrl.trim()],
+      ["CURAL_LEGACY_BASE_URL", input.legacyBaseUrl?.trim()],
+      ["CURAL_TARGET_BASE_URL", input.targetBaseUrl?.trim()],
     ].filter((entry): entry is [string, string] => Boolean(entry[1])),
   );
 }
 
-export async function startAnalyze(input: {
-  phase: "as-is" | "to-be";
+async function startCloudRun(input: {
+  name: string;
   envName: string;
-  legacyRepo: string;
-  legacyRef: string;
-  targetRepo: string;
+  repos: RepoInput[];
   prompt: string;
-  journeys?: Journey[];
-  agentId?: string;
-  regenerate?: boolean;
   requestKey?: string;
+  envVars?: Record<string, string>;
+  metadata: Record<string, string>;
 }): Promise<{ agentId: string; runId: string }> {
-  const apiKey = requireApiKey();
-  const message =
-    input.phase === "as-is"
-      ? asIsPrompt(input.legacyRepo, { redraw: Boolean(input.regenerate) })
-      : toBePrompt(
-          input.legacyRepo,
-          input.targetRepo,
-          input.prompt,
-          input.journeys,
-        );
-
-  if (isCloudAgentId(input.agentId)) {
-    try {
-      const agent = await Agent.resume(input.agentId!, { apiKey, model: MODEL });
-      try {
-        const run = await agent.send(message, {
-          idempotencyKey: input.requestKey,
-        });
-        return { agentId: agent.agentId, runId: run.id };
-      } finally {
-        agent.close();
-      }
-    } catch {
-      // Agent may have expired; start a fresh one below.
-    }
-  }
-
   const agent = await Agent.create({
-    apiKey,
+    apiKey: requireApiKey(),
     model: MODEL,
-    name: "Cural as-is architecture",
-    cloud: cloudOptions(input.envName, [{
-      url: input.legacyRepo,
-      startingRef: input.legacyRef || undefined,
-    }]),
+    name: input.name,
+    cloud: {
+      ...cloudOptions(input.envName, input.repos),
+      metadata: input.metadata,
+      autoCreatePR: false,
+      ...(input.envVars && Object.keys(input.envVars).length
+        ? { envVars: input.envVars }
+        : {}),
+    },
   });
   try {
-    const run = await agent.send(message, {
+    const run = await agent.send(input.prompt, {
       idempotencyKey: input.requestKey,
     });
     return { agentId: agent.agentId, runId: run.id };
@@ -129,84 +106,99 @@ export async function startAnalyze(input: {
   }
 }
 
-export async function startExecute(input: {
+export function startResearch(input: {
+  envName: string;
+  legacyRepo: string;
+  legacyRef: string;
+  legacyBaseUrl: string;
+  prompt: string;
+  requestKey?: string;
+}) {
+  return startCloudRun({
+    name: "Cural research",
+    envName: input.envName,
+    repos: [{
+      url: input.legacyRepo,
+      startingRef: input.legacyRef || undefined,
+    }],
+    prompt: researchPrompt(input),
+    requestKey: input.requestKey,
+    envVars: urlEnvVars(input),
+    metadata: { workflow: "research" },
+  });
+}
+
+export function startPlan(input: {
   envName: string;
   legacyRepo: string;
   legacyRef: string;
   targetRepo: string;
   targetRef: string;
   prompt: string;
-  extraPrompt?: string;
-  snapshot: MigrationSnapshot;
-  legacyBaseUrl?: string;
-  targetBaseUrl?: string;
-  fixtureCommand?: string;
+  research: ResearchReport;
+  researchDocument: string;
   requestKey?: string;
-}): Promise<{ agentId: string; runId: string }> {
-  const apiKey = requireApiKey();
-  const plan = executionPlan(input.snapshot.toBe);
-  const components = plan.components.map((component) => component.node);
-  const refs = plan.components.map((component) => component.ref);
-
-  const executionBranch =
-    input.snapshot.executionBranch?.trim() ||
-    executionBranchName(input.snapshot.id);
-
-  const repos = [
-    { url: input.legacyRepo, startingRef: input.legacyRef || undefined },
-    { url: input.targetRepo, startingRef: input.targetRef || undefined },
-  ];
-  const envVars = evaluationEnvVars({
-    legacyBaseUrl: input.legacyBaseUrl ?? "",
-    targetBaseUrl: input.targetBaseUrl ?? "",
+}) {
+  return startCloudRun({
+    name: "Cural implementation plan",
+    envName: input.envName,
+    repos: [
+      { url: input.legacyRepo, startingRef: input.legacyRef || undefined },
+      { url: input.targetRepo, startingRef: input.targetRef || undefined },
+    ],
+    prompt: planPrompt(input),
+    requestKey: input.requestKey,
+    metadata: { workflow: "plan" },
   });
-  const agent = await Agent.create({
-    apiKey,
-    model: MODEL,
-    name: "Cural migration execute",
-    cloud: {
-      ...cloudOptions(input.envName, repos),
-      metadata: {
-        workflow: "migration-execute",
-        snapshotId: input.snapshot.id,
-      },
-      autoCreatePR: false,
-      ...(Object.keys(envVars).length ? { envVars } : {}),
-    },
-  });
-
-  try {
-    const run = await agent.send(
-      executePrompt({
-        ...input,
-        components,
-        refs,
-        plan,
-        executionBranch,
-        snapshot: input.snapshot,
-      }),
-      { idempotencyKey: input.requestKey },
-    );
-    return { agentId: agent.agentId, runId: run.id };
-  } finally {
-    agent.close();
-  }
 }
 
-export async function listVideoArtifacts(agentId: string): Promise<EvaluationVideo[]> {
+export function startImplement(input: {
+  envName: string;
+  legacyRepo: string;
+  legacyRef: string;
+  targetRepo: string;
+  targetRef: string;
+  targetBaseUrl: string;
+  fixtureCommand: string;
+  prompt: string;
+  plan: ImplementationPlanReport;
+  planDocument: string;
+  snapshot: MigrationSnapshot;
+  requestKey?: string;
+}) {
+  const executionBranch =
+    input.snapshot.executionBranch || executionBranchName(input.snapshot.id);
+  return startCloudRun({
+    name: "Cural implement and verify",
+    envName: input.envName,
+    repos: [
+      { url: input.legacyRepo, startingRef: input.legacyRef || undefined },
+      { url: input.targetRepo, startingRef: input.targetRef || undefined },
+    ],
+    prompt: implementPrompt({
+      ...input,
+      executionBranch,
+      components: input.snapshot.toBe.nodes,
+    }),
+    requestKey: input.requestKey,
+    envVars: urlEnvVars(input),
+    metadata: {
+      workflow: "implement",
+      snapshotId: input.snapshot.id,
+    },
+  });
+}
+
+export async function listAgentArtifacts(agentId: string) {
   if (!isCloudAgentId(agentId)) return [];
-  const apiKey = requireApiKey();
-  const agent = await Agent.resume(agentId, { apiKey });
+  const agent = await Agent.resume(agentId, { apiKey: requireApiKey() });
   try {
-    const artifacts = await agent.listArtifacts();
-    return artifacts
-      .filter((artifact) => isVideoArtifactPath(artifact.path))
-      .map((artifact) => ({
-        path: artifact.path,
-        label: artifact.path.split("/").pop() || artifact.path,
-        sizeBytes: artifact.sizeBytes,
-        updatedAt: artifact.updatedAt,
-      }));
+    return (await agent.listArtifacts()).map((artifact) => ({
+      path: artifact.path,
+      label: artifact.path.split("/").pop() || artifact.path,
+      sizeBytes: artifact.sizeBytes,
+      updatedAt: artifact.updatedAt,
+    }));
   } catch {
     return [];
   } finally {
@@ -221,181 +213,296 @@ export async function downloadAgentArtifact(
   if (!isCloudAgentId(agentId)) {
     throw new Error("Only cloud agent artifacts can be downloaded");
   }
-  if (!path || path.includes("..") || path.startsWith("/")) {
+  const relative = artifactBasename(path);
+  if (!relative || relative.includes("..") || relative.startsWith("/")) {
     throw new Error("Invalid artifact path");
   }
-  const apiKey = requireApiKey();
-  const agent = await Agent.resume(agentId, { apiKey });
+  const agent = await Agent.resume(agentId, { apiKey: requireApiKey() });
   try {
     const artifacts = await agent.listArtifacts();
-    const match = artifacts.find((artifact) => artifact.path === path);
-    if (!match) {
+    const listed = artifacts.find(
+      (artifact) =>
+        artifact.path === path ||
+        artifact.path === relative ||
+        artifactBasename(artifact.path) === relative,
+    );
+    if (!listed) {
       throw new Error("Artifact not found on agent");
     }
-    const buffer = await agent.downloadArtifact(path);
-    return {
-      buffer,
-      contentType: isVideoArtifactPath(path)
-        ? videoContentType(path)
-        : "application/octet-stream",
-    };
+    const buffer = await agent.downloadArtifact(listed.path);
+    const lower = path.toLowerCase();
+    const contentType = lower.endsWith(".md")
+      ? "text/markdown; charset=utf-8"
+      : lower.endsWith(".png")
+        ? "image/png"
+        : lower.endsWith(".jpg") || lower.endsWith(".jpeg")
+          ? "image/jpeg"
+          : /\.(mp4|webm|mov|m4v)$/i.test(path)
+            ? videoContentType(path)
+            : "application/octet-stream";
+    return { buffer, contentType };
   } finally {
     agent.close();
   }
 }
 
+async function readAgentArtifactText(agentId: string, path: string) {
+  const { buffer } = await downloadAgentArtifact(agentId, path);
+  return buffer.toString("utf8");
+}
+
+async function hydrateResearchDocument(
+  agentId: string,
+  artifacts: Awaited<ReturnType<typeof listAgentArtifacts>>,
+  result: ResearchRunResult,
+): Promise<ResearchRunResult> {
+  if (!isStubResearchDocument(result.document.content)) return result;
+  const plan = artifacts.find((artifact) =>
+    artifactBasename(artifact.path).endsWith("research-plan.md"),
+  );
+  if (!plan) return result;
+  try {
+    const content = redactSecrets(await readAgentArtifactText(agentId, plan.path));
+    return content.trim()
+      ? { ...result, document: { ...result.document, content } }
+      : result;
+  } catch {
+    return result;
+  }
+}
+
+async function extractResearchFromArtifacts(
+  agentId: string,
+  artifacts: Awaited<ReturnType<typeof listAgentArtifacts>>,
+): Promise<ResearchRunResult | null> {
+  const reports = artifacts.filter((artifact) =>
+    artifactBasename(artifact.path).endsWith("cural-research-report.json"),
+  );
+  for (const artifact of reports) {
+    try {
+      const extracted = extractResearchResult(
+        await readAgentArtifactText(agentId, artifact.path),
+      );
+      if (extracted) {
+        return hydrateResearchDocument(agentId, artifacts, extracted);
+      }
+    } catch {
+      // Try the next matching report artifact.
+    }
+  }
+  return null;
+}
+
+async function hydratePlanDocument(
+  agentId: string,
+  artifacts: Awaited<ReturnType<typeof listAgentArtifacts>>,
+  result: PlanRunResult,
+): Promise<PlanRunResult> {
+  if (!isStubPlanDocument(result.document.content)) return result;
+  const plan = artifacts.find((artifact) =>
+    artifactBasename(artifact.path).endsWith("implementation-plan.md"),
+  );
+  if (!plan) return result;
+  try {
+    const content = redactSecrets(await readAgentArtifactText(agentId, plan.path));
+    return content.trim()
+      ? { ...result, document: { ...result.document, content } }
+      : result;
+  } catch {
+    return result;
+  }
+}
+
+async function extractPlanFromArtifacts(
+  agentId: string,
+  artifacts: Awaited<ReturnType<typeof listAgentArtifacts>>,
+  research: ResearchReport,
+): Promise<PlanRunResult | null> {
+  const reports = artifacts.filter((artifact) =>
+    artifactBasename(artifact.path).endsWith("cural-plan-report.json"),
+  );
+  for (const artifact of reports) {
+    try {
+      const extracted = extractPlanResult(
+        await readAgentArtifactText(agentId, artifact.path),
+        research,
+      );
+      if (extracted) {
+        return hydratePlanDocument(agentId, artifacts, extracted);
+      }
+    } catch {
+      // Try the next matching report artifact.
+    }
+  }
+  return null;
+}
+
 export async function pollRun(input: {
   agentId: string;
   runId: string;
-  kind?: "analyze" | "execute";
-  componentIds?: string[];
-  components?: { id: string; label: string }[];
+  kind: "research" | "plan" | "implement";
+  research?: ResearchReport;
+  plan?: ImplementationPlanReport;
 }): Promise<{
   status: string;
   result?: string;
-  graph?: Graph;
-  journeys?: Journey[];
   error?: string;
+  researchResult?: ResearchRunResult;
+  planResult?: PlanRunResult;
+  implementationResult?: ImplementRunResult;
   nodeStatus?: Record<string, NodeStatus>;
-  executionReport?: ExecutionReport;
-  evaluationReport?: EvaluationReport;
-  evaluationVideos?: EvaluationVideo[];
+  artifacts?: Awaited<ReturnType<typeof listAgentArtifacts>>;
   branches?: RunBranch[];
 }> {
-  const apiKey = requireApiKey();
+  const artifacts = await listAgentArtifacts(input.agentId);
+  if (input.kind === "research" && input.runId === RECOVER_RUN_ID) {
+    const researchResult = await extractResearchFromArtifacts(
+      input.agentId,
+      artifacts,
+    );
+    if (!researchResult) {
+      return { status: "error", error: "Research finished without a valid report" };
+    }
+    return {
+      status: "FINISHED",
+      researchResult: {
+        ...researchResult,
+        graph: layoutGraph(researchResult.graph),
+      },
+      artifacts,
+      branches: [],
+    };
+  }
+  if (input.kind === "plan" && input.runId === RECOVER_RUN_ID) {
+    if (!input.research) {
+      return { status: "error", error: "Research context is required to parse the plan" };
+    }
+    const planResult = await extractPlanFromArtifacts(
+      input.agentId,
+      artifacts,
+      input.research,
+    );
+    if (!planResult) {
+      return { status: "error", error: "Plan finished without a valid report" };
+    }
+    return {
+      status: "FINISHED",
+      planResult: { ...planResult, graph: layoutGraph(planResult.graph) },
+      artifacts,
+      branches: [],
+    };
+  }
+
   const run = await Agent.getRun(input.runId, {
     runtime: "cloud",
     agentId: input.agentId,
-    apiKey,
+    apiKey: requireApiKey(),
   });
-
-  // Rehydrated cloud runs do not guarantee that their original stream remains
-  // available. Status and terminal result metadata are durable; conversation
-  // streams are not, so polling must never depend on run.conversation().
   const text = run.result ?? "";
-  const safeText = redactSecrets(text);
-  const refs = input.components?.length
-    ? componentRefs(input.components)
-    : input.componentIds?.length
-      ? componentRefs(input.componentIds.map((id) => ({ id, label: id })))
-      : undefined;
-  const nodeStatus = refs?.length
-    ? extractProgress(text, refs.map((ref) => ref.id))
-    : undefined;
+  const result = redactSecrets(text);
   const branches = runBranches(run.git);
+  const stepIds =
+    input.plan?.phases.flatMap((phase) => phase.steps.map((step) => step.id)) ??
+    [];
+  const nodeStatus =
+    input.kind === "implement" ? extractProgress(text, stepIds) : undefined;
 
   if (run.status === "running") {
-    return { status: run.status, result: safeText, nodeStatus, branches };
+    return { status: "running", result, nodeStatus, branches };
   }
-
   if (run.status === "error" || run.status === "cancelled") {
     return {
       status: run.status,
-      result: safeText,
+      result,
       error: run.error?.message ?? `Run ${run.status}`,
       nodeStatus,
       branches,
     };
   }
 
-  if (input.kind === "execute" || refs?.length) {
-    const executionReport = extractExecutionReport(text);
-    if (!executionReport) {
-      return {
-        status: "error",
-        result: safeText,
-        error: "Execution finished without a valid CURAL_EXECUTION_REPORT",
-        nodeStatus,
-        branches,
-      };
-    }
-    const finalStatus = Object.fromEntries(
-      refs?.map((ref) => {
-        const reported = executionReport.components.find(
-          (component) => component.id === ref.id,
-        );
-        return [ref.id, reported?.status === "done" ? "done" : "error"];
-      }) ?? [],
-    ) as Record<string, NodeStatus>;
-    const evaluationReport = extractEvaluationReport(text);
-    const listed = evaluationReport
-      ? await listVideoArtifacts(input.agentId)
-      : [];
-    const evaluationVideos = evaluationReport
-      ? mergeEvaluationVideos(evaluationReport.videos, listed)
-      : [];
-    const proven = evaluationReport
-      ? { ...evaluationReport, videos: evaluationVideos }
-      : undefined;
-    if (
-      executionReport.status !== "passed" ||
-      Object.values(finalStatus).some((status) => status === "error")
-    ) {
-      return {
-        status: "error",
-        result: safeText,
-        error: "One or more components did not complete successfully",
-        nodeStatus: finalStatus,
-        executionReport,
-        evaluationReport: proven,
-        evaluationVideos,
-        branches,
-      };
-    }
-    if (!evaluationReport) {
-      return {
-        status: "error",
-        result: safeText,
-        error: "Execution finished without proving the goal (missing CURAL_EVALUATION_REPORT)",
-        nodeStatus: finalStatus,
-        executionReport,
-        branches,
-      };
-    }
-    const missingGates = failedGoalGates(evaluationReport);
-    if (evaluationReport.status !== "passed" || missingGates.length) {
-      return {
-        status: "error",
-        result: safeText,
-        error:
-          missingGates.length
-            ? evaluationReport.testCycles >= MAX_PROOF_CYCLES
-              ? `Proof failed after ${MAX_PROOF_CYCLES} cycles: ${missingGates.join(" and ")} did not pass`
-              : `Keep looping: ${missingGates.join(" and ")} did not pass`
-            : evaluationReport.summary || "Goal not achieved",
-        nodeStatus: finalStatus,
-        executionReport,
-        evaluationReport: proven,
-        evaluationVideos,
-        branches,
-      };
+  if (input.kind === "research") {
+    const researchResult =
+      extractResearchResult(text) ??
+      (await extractResearchFromArtifacts(input.agentId, artifacts));
+    const hydrated = researchResult
+      ? await hydrateResearchDocument(input.agentId, artifacts, researchResult)
+      : null;
+    if (!hydrated) {
+      return { status: "error", error: "Research finished without a valid report" };
     }
     return {
       status: run.status,
-      result: safeText,
-      nodeStatus: finalStatus,
-      executionReport,
-      evaluationReport: proven,
-      evaluationVideos,
+      result,
+      researchResult: {
+        ...hydrated,
+        graph: layoutGraph(hydrated.graph),
+      },
+      artifacts,
       branches,
     };
   }
-
-  try {
-    const analysis = extractAnalysis(text);
+  if (input.kind === "plan") {
+    if (!input.research) {
+      return { status: "error", error: "Research context is required to parse the plan" };
+    }
+    const planResult =
+      extractPlanResult(text, input.research) ??
+      (await extractPlanFromArtifacts(input.agentId, artifacts, input.research));
+    const hydrated = planResult
+      ? await hydratePlanDocument(input.agentId, artifacts, planResult)
+      : null;
+    if (!hydrated) {
+      return { status: "error", error: "Plan finished without a valid report" };
+    }
     return {
       status: run.status,
-      result: safeText,
-      graph: layoutGraph(analysis.graph),
-      journeys: analysis.journeys,
+      result,
+      planResult: { ...hydrated, graph: layoutGraph(hydrated.graph) },
+      artifacts,
       branches,
     };
-  } catch (error) {
+  }
+  if (!input.plan) {
+    return { status: "error", error: "Approved plan is required to parse implementation" };
+  }
+  const implementationResult = extractImplementationResult(text, input.plan);
+  if (!implementationResult) {
     return {
       status: "error",
-      result: safeText,
-      error: error instanceof Error ? error.message : "Failed to parse architecture JSON",
+      error: "Implementation finished without a valid report",
+      artifacts,
       branches,
     };
   }
+  const recordingPath = implementationResult.report.recording?.path;
+  if (
+    implementationResult.report.status === "passed" &&
+    (!recordingPath ||
+      !artifacts.some((artifact) => artifact.path === recordingPath))
+  ) {
+    implementationResult.report.status = "failed";
+    return {
+      status: "error",
+      error: "Implementation report referenced a missing recording artifact",
+      implementationResult,
+      artifacts,
+      branches,
+    };
+  }
+  return {
+    status:
+      implementationResult.report.status === "passed" ? run.status : "error",
+    result,
+    error:
+      implementationResult.report.status === "passed"
+        ? undefined
+        : "Modern verification gates did not pass",
+    implementationResult,
+    nodeStatus,
+    artifacts,
+    branches,
+  };
 }
+
+// Backwards-compatible export used by older tests.
+export const evaluationEnvVars = urlEnvVars;

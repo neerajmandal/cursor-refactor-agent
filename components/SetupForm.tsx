@@ -6,7 +6,9 @@ import { nanoid } from "nanoid";
 
 const STEPS = [
   "Connect systems",
-  "Review architecture",
+  "Research",
+  "Plan",
+  "Implement",
 ] as const;
 
 export function SetupForm() {
@@ -123,7 +125,7 @@ export function SetupForm() {
               Cursor cloud environment
             </h2>
             <p className="mt-0.5 text-[11px] leading-4 text-muted">
-              Required for execute; stores target app secrets.
+              Required for implementation; stores target app secrets.
             </p>
           </div>
           <input
@@ -177,11 +179,11 @@ export function SetupForm() {
             </label>
             <details className="relative">
               <summary className="cursor-pointer list-none text-[12px] font-medium text-muted outline-none hover:text-ink">
-                Parity options
+                Verification setup
               </summary>
               <div className="absolute right-0 z-10 mt-2 w-[min(100vw-3rem,22rem)] rounded-xl border border-line bg-node p-3 shadow-sm">
                 <p className="text-[11px] leading-4 text-muted">
-                  Optional. Used during execute so the agent can start both apps and prove the goal.
+                  Optional URLs and reset command. Research uses the legacy app; Implement verifies the modern app.
                 </p>
                 <div className="mt-2 space-y-2">
                   <input
@@ -228,14 +230,14 @@ export function SetupForm() {
 
         <footer className="flex shrink-0 items-center justify-between gap-4 border-t border-line pt-3">
           <p className="hidden text-[12px] leading-4 text-muted sm:block">
-            Next: analyze and review the architecture on the board.
+            Next: inspect the legacy repository and capture two UI questions.
           </p>
           <button
             type="submit"
             disabled={busy}
             className="ml-auto rounded-xl bg-cta px-4 py-2.5 text-[13px] font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-50"
           >
-            {busy ? "Opening board…" : "Analyze architecture →"}
+            {busy ? "Opening board…" : "Start research →"}
           </button>
         </footer>
       </form>

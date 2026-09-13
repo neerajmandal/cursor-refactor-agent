@@ -6,12 +6,12 @@ export default async function BoardPage({
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ view?: string | string[] }>;
+  searchParams: Promise<{ phase?: string | string[] }>;
 }) {
   const [{ id }, query] = await Promise.all([params, searchParams]);
   return (
     <div className="h-svh">
-      <BoardEntry boardId={id} initialView={boardViewFromParam(query.view)} />
+      <BoardEntry boardId={id} initialView={boardViewFromParam(query.phase)} />
     </div>
   );
 }

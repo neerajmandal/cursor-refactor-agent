@@ -1,155 +1,294 @@
-import {
-  attachedSpec,
-  executionPlan,
-  formatExecutionTree,
-  type ExecutionPlan,
-} from "@/lib/execution";
-import type { ComponentRef } from "@/lib/graph";
+import { formatExecutionTree, executionPlan } from "@/lib/execution";
 import type {
-  Graph,
   GraphNode,
-  Journey,
+  ImplementationPlanReport,
   MigrationSnapshot,
+  ResearchReport,
 } from "@/lib/types";
-
-const SPEC_SHAPE = `{
-      "purpose": "1-2 sentences, max 40 words. What this component is for. No flow, files, or retries.",
-      "interface": "public types, functions, or HTTP routes only; one per line, max 4",
-      "owns": "target files or modules only; max 4 short lines",
-      "dependsOn": "neighbor components to call; max 4 short lines",
-      "portFrom": "legacy files or symbols; max 4 short lines",
-      "outOfScope": "what this subagent must not build; max 3 short lines",
-      "doneWhen": "3-4 short testable checks, one per line"
-    }`;
-
-export const SAMPLE_UI_QUESTIONS = [
-  "What does HelloDrive fault code FO48 mean?",
-  "How do I clear a HelloDrive FO48 fault and get the line running again?",
-] as const;
-
-export const MODERN_UI_RULE =
-  "Copy the legacy app UI into the modern app so a user can ask questions the same way. Keep the same screens, input, and submit flow. Add a visible V2 label in the modern UI (title or header) so testers can tell the two apps apart.";
 
 export const OPENAI_GOAL_CHECK = "Questions sent via OpenAI";
 export const NEON_GOAL_CHECK = "Answers persisted in Neon";
 export const MAX_PROOF_CYCLES = 3;
 
-const TREE_DIAGRAM_RULES = `Diagram rules — a talk slide, not an inventory:
-- 5 to 7 boxes on 2 to 4 ranks. Top-to-bottom tree only.
-- Exactly one root (HTTP or UI entrypoint). Every other node has exactly one parent — one incoming edge, no extras, no cycles, no back-edges.
-- Children of the same parent sit on one rank. Typical shape: Controller → orchestrator → 2-4 leaf collaborators.
-- Labels are short type names (ChatController, ChatService). No package paths.
-- Omit databases, files, caches, queues, buses-as-infrastructure, and third parties (OpenAI, SQLite, S3) unless the story is about that store.
-- Edges have no labels. caption is one sentence, like: "HTTP waits on correlation_id. Every hop publishes an event."
-- Specs stay structured. Detail lives in the spec, not on the canvas.`;
+const SPEC_SHAPE = `{
+  "purpose": "What this component does",
+  "interface": "Public routes, types, or functions",
+  "owns": "Files or modules it owns",
+  "dependsOn": "Neighboring components",
+  "portFrom": "Relevant legacy files or symbols",
+  "outOfScope": "What it must not build",
+  "doneWhen": "Concrete completion checks"
+}`;
 
-export function asIsPrompt(legacyRepo: string, options?: { redraw?: boolean }): string {
-  const redraw = options?.redraw
-    ? `The diagram you already drew is too busy: too many boxes, databases, and crossing arrows. Discard it. Draw only the main request path as a clean top-to-bottom tree.\n\n`
-    : "";
-  return `${redraw}You are drawing a whiteboard diagram of how a request flows through the legacy system.
+const GRAPH_RULES = `Keep the diagram focused: 5–9 components on a clean top-to-bottom request path. Use stable kebab-case IDs. Every edge must reference an existing node. Put detail in component specs and findings, not labels.`;
 
-Repository: ${legacyRepo}
+export function researchPrompt(input: {
+  legacyRepo: string;
+  legacyRef?: string;
+  legacyBaseUrl?: string;
+  prompt: string;
+}): string {
+  return `You are the Research agent for Cural. Understand and document the legacy application without modifying it.
 
-Inspect the checked-out default/main branch only. Do not create a branch, do not modify files, and do not write code. Explore just enough to find the main request path and one critical end-user journey. Static analysis is evidence, not proof of exhaustive feature coverage.
+Legacy repository: ${input.legacyRepo}${input.legacyRef ? ` at ${input.legacyRef}` : ""}
+Legacy application URL: ${input.legacyBaseUrl || "Start the application using its documented commands."}
+Refactoring goal:
+${input.prompt}
 
-Return ONLY one JSON object in a fenced json code block:
+Required work
+1. Inspect the repository to identify components, dependencies, integrations, data stores, and the main question request flow.
+2. Use Cursor computer use in the visible browser UI. Choose exactly two representative questions grounded in the application's domain, type and submit each question through the legacy UI, and capture the exact visible question and answer text. Direct API calls do not count.
+3. Trace how each submitted question moves from UI to API through processing, generation, display, and storage. Cite concrete files, symbols, logs, database evidence, or screenshots.
+4. Write artifacts/research-plan.md with: refactoring goal and scope; legacy architecture and component responsibilities; request flow; the exact two questions and answers; generation/display/storage details; evidence; risks; open questions.
+5. Do not create a branch, edit the legacy repository, propose target architecture, or implement code.
+
+${GRAPH_RULES}
+Each graph node must use this spec shape:
+${SPEC_SHAPE}
+
+End with exactly one marked JSON block. Put the fence immediately after the marker. Also write the same object to artifacts/cural-research-report.json so the host can recover if the chat block is truncated.
+CURAL_RESEARCH_REPORT
+\`\`\`json
 {
-  "caption": "One sentence of the runtime story",
-  "nodes": [
-    {
-      "id": "stable-slug",
-      "label": "ShortTypeName",
-      "kind": "service|app|db|job|lib",
-      "spec": ${SPEC_SHAPE}
-    }
-  ],
-  "edges": [
-    { "from": "id", "to": "id" }
-  ],
-  "journeys": [
-    {
-      "id": "stable-journey-slug",
-      "title": "End-user behavior",
-      "actor": "User role",
-      "preconditions": ["Required state"],
-      "steps": ["User action in order"],
-      "outcomes": ["Observable result, not an implementation detail"],
-      "fixtures": ["Deterministic test data or account"],
-      "normalizationRules": ["omit:generatedId", "ISO-date-regex => <timestamp>"],
-      "componentIds": ["node-id"],
-      "sourceEvidence": ["path/to/file.ts:SymbolName"],
-      "required": true
-    }
-  ]
+  "document": {
+    "filename": "research-plan.md",
+    "artifactPath": "artifacts/research-plan.md",
+    "content": "Complete Markdown content"
+  },
+  "graph": {
+    "caption": "One-sentence request flow",
+    "nodes": [{ "id": "component-id", "label": "Component", "kind": "app|service|db|external|job|lib", "spec": ${SPEC_SHAPE} }],
+    "edges": [{ "from": "component-id", "to": "component-id", "label": "optional" }]
+  },
+  "report": {
+    "goal": "Refactoring goal",
+    "scope": "Research scope",
+    "requestFlow": ["Ordered runtime step"],
+    "findings": [{
+      "id": "finding-id",
+      "title": "Finding",
+      "summary": "What was learned",
+      "componentIds": ["component-id"],
+      "evidence": ["path/to/file:Symbol or artifact path"]
+    }],
+    "questions": [
+      {
+        "question": "Exact first submitted question",
+        "legacyAnswer": "Exact visible answer",
+        "generation": "How it was generated",
+        "display": "How it was displayed",
+        "storage": "How/where it was stored, or not stored",
+        "evidence": ["Concrete evidence"]
+      },
+      {
+        "question": "Exact second submitted question",
+        "legacyAnswer": "Exact visible answer",
+        "generation": "How it was generated",
+        "display": "How it was displayed",
+        "storage": "How/where it was stored, or not stored",
+        "evidence": ["Concrete evidence"]
+      }
+    ],
+    "risks": ["Risk"],
+    "openQuestions": ["Open question"]
+  }
+}
+\`\`\``;
 }
 
-${TREE_DIAGRAM_RULES}
-- Specs are short cards, not essays. purpose is 1-2 sentences (max 40 words). Other fields are at most 4 short lines.
+export function planPrompt(input: {
+  legacyRepo: string;
+  targetRepo: string;
+  prompt: string;
+  research: ResearchReport;
+  researchDocument: string;
+}): string {
+  return `You are the Plan agent for Cural. Define the target architecture and a concrete implementation plan. Do not modify either repository.
 
-ids are unique kebab-case. Every edge and journey componentId references existing node ids. Return one journey for this proof, grounded in source evidence. No markdown outside the json fence.`;
+Legacy repository: ${input.legacyRepo}
+Target repository: ${input.targetRepo}
+Refactoring goal:
+${input.prompt}
+
+Authoritative research-plan.md:
+--- BEGIN RESEARCH PLAN ---
+${input.researchDocument}
+--- END RESEARCH PLAN ---
+
+Structured research observations:
+${JSON.stringify(input.research, null, 2)}
+
+Required work
+1. Design the intended target architecture and explain the reasoning.
+2. Identify components to retain, replace, remove, or introduce.
+3. Break implementation into ordered phases containing small steps. Every step must name its changes, affected component IDs, step dependencies, and concrete done conditions.
+4. Finish with a Verify phase. Copy the exact two questions and exact legacy answers below into that section:
+${input.research.questions
+  .map(
+    (item, index) =>
+      `${index + 1}. Question: ${item.question}\n   Legacy answer: ${item.legacyAnswer}`,
+  )
+  .join("\n")}
+5. Verification must use computer use to submit those questions through the modern UI so they reach the modern API, capture the new answers, record the interaction, prove two OpenAI calls, and prove both question/answer rows were persisted in Neon.
+6. Define success from the intended modern behavior. Legacy answers are context only and must not be used as parity expectations.
+7. Write artifacts/implementation-plan.md with the complete plan.
+
+${GRAPH_RULES}
+Each target node must use this spec shape:
+${SPEC_SHAPE}
+
+End with exactly one marked JSON block. Put the fence immediately after the marker. Also write the same object to artifacts/cural-plan-report.json so the host can recover if the chat block is truncated.
+CURAL_PLAN_REPORT
+\`\`\`json
+{
+  "document": {
+    "filename": "implementation-plan.md",
+    "artifactPath": "artifacts/implementation-plan.md",
+    "content": "Complete Markdown content"
+  },
+  "graph": {
+    "caption": "One-sentence target request flow",
+    "nodes": [{ "id": "component-id", "label": "Component", "kind": "app|service|db|external|lib", "spec": ${SPEC_SHAPE} }],
+    "edges": [{ "from": "component-id", "to": "component-id", "label": "optional" }]
+  },
+  "report": {
+    "architectureReasoning": "Why this architecture",
+    "decisions": [{ "componentId": "component-id", "action": "retain|replace|remove|introduce", "rationale": "Reason" }],
+    "phases": [{
+      "id": "phase-id",
+      "title": "Implementation phase",
+      "steps": [{
+        "id": "step-id",
+        "title": "Small actionable step",
+        "changes": "What changes",
+        "componentIds": ["component-id"],
+        "dependsOn": ["earlier-step-id"],
+        "doneWhen": ["Testable completion condition"],
+        "status": "pending"
+      }]
+    }],
+    "verify": {
+      "questions": ${JSON.stringify(
+        input.research.questions.map(({ question, legacyAnswer }) => ({
+          question,
+          legacyAnswer,
+        })),
+        null,
+        2,
+      )},
+      "instructions": ["Modern UI and API verification instruction"],
+      "successCriteria": ["Intended modern behavior criterion", "Two OpenAI responses", "Both rows persisted in Neon", "Computer-use recording saved"]
+    }
+  }
+}
+\`\`\``;
+}
+
+export function implementPrompt(input: {
+  legacyRepo: string;
+  legacyRef?: string;
+  targetRepo: string;
+  targetRef?: string;
+  executionBranch: string;
+  prompt: string;
+  plan: ImplementationPlanReport;
+  planDocument: string;
+  components: GraphNode[];
+  snapshot?: MigrationSnapshot;
+  targetBaseUrl?: string;
+  fixtureCommand?: string;
+}): string {
+  const graph = input.snapshot?.toBe ?? { nodes: input.components, edges: [] };
+  const tree = executionPlan(graph);
+  const baseRef = input.targetRef?.trim() || "the default branch";
+  const questions = input.plan.verify.questions;
+
+  return `You are the Implement agent for Cural. Execute the approved implementation plan in order and verify the modern application.
+
+Read-only legacy reference: ${input.legacyRepo}${input.legacyRef ? ` at ${input.legacyRef}` : ""}
+Target repository: ${input.targetRepo}
+Target base ref: ${baseRef}
+Orchestrator-assigned branch: ${input.executionBranch}
+Modern application URL: ${input.targetBaseUrl || "Start it using the target repository documentation."}
+Fixture/reset command: ${input.fixtureCommand || "Use the target repository's documented reset command if needed."}
+
+Refactoring goal:
+${input.prompt}
+
+Approved implementation-plan.md:
+--- BEGIN IMPLEMENTATION PLAN ---
+${input.planDocument}
+--- END IMPLEMENTATION PLAN ---
+
+Structured plan:
+${JSON.stringify(input.plan, null, 2)}
+
+Target component tree:
+${formatExecutionTree(tree)}
+
+Hard requirements
+- DATABASE_URL and OPENAI_API_KEY must already exist. Do not print their values.
+- DATABASE_URL must identify Neon Postgres. Use its default database; do not create a separate branch or use a local/file/in-memory fallback.
+- Verify the target origin, create ${input.executionBranch} from ${baseRef}, publish it immediately, and only commit/push there.
+- Execute every approved phase and step in dependency order. Emit CURAL_STEP_STATUS for each transition.
+- After implementation, run repository checks and start the modern app.
+- Use Cursor computer use through the visible modern UI. Submit exactly these two questions:
+${questions.map((item, index) => `${index + 1}. ${item.question}`).join("\n")}
+- Both submissions must travel through the modern API, produce visible non-empty new answers, call live OpenAI, and persist the exact question/answer rows in Neon.
+- Record the complete modern UI verification and save it as artifacts/modern-ui-verification.mp4 (or .webm).
+- Inspect code, logs, and Neon only as supporting proof. They cannot replace the recorded UI interaction.
+- Do not reopen or test the legacy UI. Do not compare modern answers with legacy answers. The legacy answers in the plan are context only.
+- If a modern behavior gate fails, repair and rerun the modern verification, up to ${MAX_PROOF_CYCLES} cycles.
+- Write artifacts/implementation-summary.md and artifacts/verification-report.md.
+- Run git ls-remote against the target origin and report the pushed branch commit. Open a PR only after every gate passes.
+
+End with exactly one marked JSON block:
+CURAL_IMPLEMENTATION_REPORT
+\`\`\`json
+{
+  "status": "passed|failed",
+  "summary": "Implementation and verification result",
+  "testCycles": 1,
+  "steps": [{ "id": "exact-plan-step-id", "status": "done|error", "summary": "Result" }],
+  "observations": [
+    {
+      "question": ${JSON.stringify(questions[0]?.question ?? "")},
+      "legacyAnswer": ${JSON.stringify(questions[0]?.legacyAnswer ?? "")},
+      "modernAnswer": "Exact visible modern answer",
+      "evidence": ["artifacts/modern-ui-verification.mp4"]
+    },
+    {
+      "question": ${JSON.stringify(questions[1]?.question ?? "")},
+      "legacyAnswer": ${JSON.stringify(questions[1]?.legacyAnswer ?? "")},
+      "modernAnswer": "Exact visible modern answer",
+      "evidence": ["artifacts/modern-ui-verification.mp4"]
+    }
+  ],
+  "openAiEvidence": ["response id for question one", "response id for question two"],
+  "neonEvidence": ["redacted endpoint ep-example", "row containing exact question one", "row containing exact question two"],
+  "recording": { "path": "artifacts/modern-ui-verification.mp4", "label": "Modern UI verification" },
+  "targetBranch": { "name": "${input.executionBranch}", "commit": "pushed commit SHA", "pushed": true },
+  "documents": [
+    { "filename": "implementation-summary.md", "artifactPath": "artifacts/implementation-summary.md", "content": "Complete Markdown content" },
+    { "filename": "verification-report.md", "artifactPath": "artifacts/verification-report.md", "content": "Complete Markdown content" }
+  ]
+}
+\`\`\`
+
+Report passed only if every plan step, repository check, modern UI/API submission, OpenAI proof, Neon proof, pushed branch, and recording passes.`;
+}
+
+// Compatibility for callers/tests while the public terminology transitions.
+export function asIsPrompt(legacyRepo: string): string {
+  return researchPrompt({ legacyRepo, prompt: "Document the legacy application." });
 }
 
 export function toBePrompt(
   legacyRepo: string,
   targetRepo: string,
   prompt: string,
-  journeys: Journey[] = [],
 ): string {
-  return `Now propose the TARGET architecture for the migration.
-
-Legacy repo (source of truth for current behavior): ${legacyRepo}
-Empty target repo (do not write code yet): ${targetRepo}
-
-Migration intent from the team:
-${prompt}
-
-Legacy behavior candidates to preserve:
-${JSON.stringify(journeys, null, 2)}
-
-Still do not modify files. Return ONLY one JSON object in a fenced json code block:
-{
-  "caption": "One sentence of how a request flows in the new system",
-  "nodes": [
-    {
-      "id": "stable-slug",
-      "label": "ShortTypeName",
-      "kind": "service|app|db|job|lib",
-      "spec": ${SPEC_SHAPE}
-    }
-  ],
-  "edges": [
-    { "from": "id", "to": "id" }
-  ],
-  "journeys": [
-    {
-      "id": "same-legacy-journey-id",
-      "title": "Same user-visible behavior",
-      "actor": "Same actor",
-      "preconditions": ["Preserved precondition"],
-      "steps": ["Preserved semantic step"],
-      "outcomes": ["Preserved observable outcome"],
-      "fixtures": ["Deterministic fixture"],
-      "normalizationRules": ["Frozen normalization only"],
-      "componentIds": ["target-node-id"],
-      "sourceEvidence": ["Legacy source evidence"],
-      "required": true
-    }
-  ]
-}
-
-${TREE_DIAGRAM_RULES}
-- Same entrypoint name as legacy when it still exists.
-
-Spec rules (required):
-- Use that exact spec object. Do not collapse it into one paragraph.
-- purpose is 1-2 sentences, never more than 40 words. No request flow, retries, or file paths.
-- Each other field is at most 4 short lines. Prefer line breaks over a long sentence.
-- interface names real symbols a subagent can implement, one per line.
-- owns names files or modules in the target repo.
-- portFrom names legacy files/symbols. outOfScope is mandatory.
-- doneWhen is 3-4 concrete checks, one per line, no numbering. That is where acceptance belongs.
-- Preserve every journey id and behavioral field. Remap only componentIds so every value references a node in this TARGET graph.`;
+  return `Use planPrompt with a completed research report. Legacy: ${legacyRepo}. Target: ${targetRepo}. Goal: ${prompt}.`;
 }
 
 export function executePrompt(input: {
@@ -159,170 +298,36 @@ export function executePrompt(input: {
   targetRef?: string;
   executionBranch: string;
   prompt: string;
-  extraPrompt?: string;
   components: GraphNode[];
-  refs?: ComponentRef[];
-  plan?: ExecutionPlan;
   snapshot?: MigrationSnapshot;
-  legacyBaseUrl?: string;
   targetBaseUrl?: string;
   fixtureCommand?: string;
+  plan?: ImplementationPlanReport;
 }): string {
-  const graph: Graph = input.snapshot?.toBe.nodes.length
-    ? input.snapshot.toBe
-    : { nodes: input.components, edges: input.snapshot?.toBe.edges ?? [] };
-  const plan = input.plan ?? executionPlan(graph);
-  const byId = new Map(plan.components.map((component) => [component.ref.id, component]));
-  const roster = plan.components
-    .map((component) => {
-      const parent = component.parentId
-        ? byId.get(component.parentId)
-        : undefined;
-      const children = component.childIds
-        .map((id) => byId.get(id)?.ref.slug)
-        .filter(Boolean)
-        .join(", ");
-      return `## ${component.node.label}
-Component id: ${component.ref.id}
-Component key: ${component.ref.slug}
-Kind: ${component.node.kind ?? "component"}
-Parent: ${parent ? `${parent.node.label} [${parent.ref.slug}]` : "none (root)"}
-Direct child components: ${children || "none"}
-
-${attachedSpec(component)}`;
-    })
-    .join("\n\n");
-  const rootSlugs = plan.roots.map((component) => component.ref.slug).join(", ");
-  const baseRef = input.targetRef?.trim() || "the default/main branch";
-  const requiredJourneys = (input.snapshot?.journeys ?? []).filter(
-    (journey) => journey.required,
-  );
-  const requiredJourneyIds = requiredJourneys.map((journey) => journey.id);
-  const reportJourneyId = requiredJourneyIds[0] || "exact-journey-id";
-  const questions = SAMPLE_UI_QUESTIONS.map(
-    (question, index) => `${index + 1}. ${question}`,
-  ).join("\n");
-
-  return `You are the migration agent. Implement the frozen plan in the target repo and prove it works.
-
-You may run at most ${MAX_PROOF_CYCLES} complete proof cycles. Do not emit passed reports or open a PR until every gate passes. If cycle ${MAX_PROOF_CYCLES} still fails, emit explicit failed reports and stop.
-
-Environment hard stop
-- DATABASE_URL and OPENAI_API_KEY must already exist in the selected Cursor cloud environment. Do not ask for them, invent them, copy them into source files, or print their values.
-- Parse DATABASE_URL without logging credentials and verify that it targets Neon Postgres. Use the default database addressed by DATABASE_URL for every database entry; do not create, select, or require a separate Neon branch. A local database, SQLite, an in-memory store, or a file fallback is a failure.
-- The modern app must use OPENAI_API_KEY for both live OpenAI requests and DATABASE_URL for both persisted question/answer rows.
-
-Legacy reference repo: ${input.legacyRepo}${input.legacyRef ? ` at ${input.legacyRef}` : " on its default/main branch"} (read-only).
-Write ALL new code in the empty target repo: ${input.targetRepo}
-
-Orchestrator-assigned execution branch: ${input.executionBranch}
-Checkout the target repo from ${baseRef}, then create or switch to ${input.executionBranch} from that ref. Commit and push only on ${input.executionBranch}. Do not commit to main or ${baseRef}.
-
-Migration intent
-${input.prompt}
-
-UI requirement
-${MODERN_UI_RULE}
-
-Required journeys
-${requiredJourneys.length ? JSON.stringify(requiredJourneys, null, 2) : "Use the required snapshot journey."}
-
-Target architecture
-${formatExecutionTree(plan) || "No target components."}
-
-Start with: ${rootSlugs || "(none)"}
-
-Frozen component specs
-${roster}
-
-Do this
-1. Before coding, write a concise, plain-language target-spec summary. State the user goal, then give every component one short responsibility, its shared contracts, dependencies, acceptance checks, the execution order, and work that can run in parallel.
-2. Delegate independent components to subagents. Give each subagent a minimal prompt containing only its component spec, required shared contracts and dependencies, and the target repo and branch. Review and integrate every result.
-3. Checkout the target base ref, create or switch to ${input.executionBranch}, implement the frozen plan, run the target repo's checks, then commit and push progress only to that branch.
-4. Run the environment hard stop. Start both apps only after DATABASE_URL, its Neon endpoint, and OPENAI_API_KEY pass.
-5. For each proof cycle, reset fixtures, then use Cursor computer use through the visible browser UI only. Enter and submit both questions in the legacy UI first, capture the visible answers, then enter and submit the same questions in the modern V2 UI:
-${questions}
-   Directly calling either app's HTTP/API endpoint with curl, fetch, a script, Playwright request APIs, or another API client does not count and is forbidden for these two question checks.
-6. Compare the answers for semantic parity: the diagnosis, operator actions, and safety constraints must agree; exact OpenAI wording need not match. Save computer-use video or screenshot artifacts that show each UI submission and visible answer.
-7. Prove the modern app sent both UI-entered questions to live OpenAI using two provider response IDs or equally specific logs. Query the default Neon database through DATABASE_URL and prove the same two questions and their non-empty answers are rows there; evidence must include the redacted Neon endpoint and matching row identifiers.
-8. If any UI, semantic parity, OpenAI, or Neon gate fails, fix the modern app on ${input.executionBranch}, commit and push the repair, and repeat the full legacy-then-modern sequence. Stop after ${MAX_PROOF_CYCLES} total cycles.
-9. Only when every gate passes, push the final branch and open a PR from ${input.executionBranch}. A failed run may leave its branch for inspection but must not open a PR.
-
-Test setup
-- Legacy URL: ${input.legacyBaseUrl || "Start it from the repo README"}
-- Modern URL: ${input.targetBaseUrl || "Start it from the repo README"}
-- Reset command: ${input.fixtureCommand || "Use the repo's seed/reset command"}
-
-Emit one line when a component starts or finishes:
-CURAL_STATUS {"id":"<id>","status":"running|done|error"}
-
-End your final response with these two blocks:
-CURAL_EXECUTION_REPORT
-\`\`\`json
-{
-  "status": "passed|failed",
-  "components": [
-    { "id": "exact-component-id", "status": "done|error", "summary": "What changed or failed" }
-  ]
-}
-\`\`\`
-CURAL_EVALUATION_REPORT
-\`\`\`json
-{
-  "status": "passed|failed",
-  "summary": "Short result",
-  "testCycles": 1,
-  "videos": [
-    {
-      "journeyId": "${reportJourneyId}",
-      "path": "artifacts/ui-walkthrough.mp4",
-      "label": "Legacy and modern UI walkthrough"
-    }
-  ],
-  "journeys": [
-    {
-      "journeyId": "${reportJourneyId}",
-      "status": "passed|failed",
-      "checks": [
-        {
-          "name": "${SAMPLE_UI_QUESTIONS[0]}",
-          "status": "passed|failed",
-          "legacy": "Legacy result",
-          "target": "Modern result",
-          "difference": "Mismatch or empty",
-          "evidence": ["computer-use video or screenshot artifact path"]
-        },
-        {
-          "name": "${SAMPLE_UI_QUESTIONS[1]}",
-          "status": "passed|failed",
-          "legacy": "Legacy result",
-          "target": "Modern result",
-          "difference": "Mismatch or empty",
-          "evidence": ["computer-use video or screenshot artifact path"]
-        },
-        {
-          "name": "${OPENAI_GOAL_CHECK}",
-          "status": "passed|failed",
-          "evidence": ["one redacted log or provider response id per question"]
-        },
-        {
-          "name": "${NEON_GOAL_CHECK}",
-          "status": "passed|failed",
-          "evidence": ["redacted Neon endpoint plus default-database query results for both rows"]
-        }
-      ]
-    }
-  ]
-}
-\`\`\`
-Include every component once in the execution report and every required journey (${requiredJourneyIds.join(", ") || "the required snapshot journey id"}) in the evaluation report. testCycles is the number of full legacy-then-modern computer-use cycles actually run and must be between 1 and ${MAX_PROOF_CYCLES}. Report passed only when all components, repo checks, both UI-only question checks, semantic comparisons, OpenAI proofs, and Neon proofs pass.${operatorNotes(input.extraPrompt)}`;
+  const questions = [
+    { question: "Question one", legacyAnswer: "Legacy context one" },
+    { question: "Question two", legacyAnswer: "Legacy context two" },
+  ] as const;
+  const plan =
+    input.plan ??
+    ({
+      architectureReasoning: "Approved target architecture",
+      decisions: [],
+      phases: [],
+      verify: {
+        questions: [...questions],
+        instructions: [],
+        successCriteria: [],
+      },
+    } as ImplementationPlanReport);
+  return implementPrompt({
+    ...input,
+    plan,
+    planDocument: "# Implementation plan",
+  });
 }
 
 export function operatorNotes(extraPrompt?: string): string {
   const notes = extraPrompt?.trim();
-  if (!notes) return "";
-  return `
-
-Operator notes for this run (do not override frozen specs, journey ids, the assigned branch, status markers, or the required report JSON):
-${notes}`;
+  return notes ? `\nOperator notes:\n${notes}` : "";
 }
