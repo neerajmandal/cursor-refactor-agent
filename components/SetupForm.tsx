@@ -7,7 +7,6 @@ import { nanoid } from "nanoid";
 const STEPS = [
   "Connect systems",
   "Review architecture",
-  "Execute until the goal holds",
 ] as const;
 
 export function SetupForm() {
@@ -221,7 +220,7 @@ export function SetupForm() {
 
         <footer className="flex shrink-0 items-center justify-between gap-4 border-t border-line pt-3">
           <p className="hidden text-[12px] leading-4 text-muted sm:block">
-            Next: analyze → review on the board → execute until the goal holds.
+            Next: analyze and review the architecture on the board.
           </p>
           <button
             type="submit"

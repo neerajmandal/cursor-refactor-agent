@@ -5,7 +5,6 @@ import { ArchitecturePane } from "@/components/ArchitecturePane";
 import { BoardChrome, type BoardView } from "@/components/BoardChrome";
 import { CursorBriefPanel } from "@/components/CursorBriefPanel";
 import { EvidencePanel } from "@/components/EvidencePanel";
-import { RunNotesComposer } from "@/components/RunNotesComposer";
 import { SpecPanel } from "@/components/SpecPanel";
 import { SAMPLE_AS_IS, SAMPLE_TO_BE } from "@/lib/sample-board";
 import type {
@@ -65,9 +64,8 @@ export function PreviewBoard() {
   const [asIs, setAsIs] = useState<Graph>(SAMPLE_AS_IS);
   const [toBe, setToBe] = useState<Graph>(SAMPLE_TO_BE);
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [phase, setPhase] = useState<Phase>("aligning");
+  const [phase] = useState<Phase>("done");
   const [view, setView] = useState<BoardView>("architecture");
-  const [extraPrompt, setExtraPrompt] = useState("");
 
   const selected = toBe.nodes.find((node) => node.id === selectedId);
   const running = phase === "executing";
@@ -88,12 +86,6 @@ export function PreviewBoard() {
     }));
   }
 
-  function executeProof() {
-    setPhase("executing");
-    setView("evidence");
-    window.setTimeout(() => setPhase("done"), 650);
-  }
-
   return (
     <div className="relative flex h-svh min-h-0 flex-col bg-paper">
       <BoardChrome
@@ -104,24 +96,6 @@ export function PreviewBoard() {
             <span className="text-[12px] text-muted">
               {phase === "done" ? "Goal achieved" : "Working toward the goal…"}
             </span>
-          ) : null
-        }
-        primaryAction={
-          phase === "aligning" ? (
-            <div className="flex items-center gap-2">
-              <RunNotesComposer
-                value={extraPrompt}
-                onChange={setExtraPrompt}
-                appliesTo="execute"
-              />
-              <button
-                type="button"
-                onClick={executeProof}
-                className="inline-flex items-center gap-2 rounded-md bg-cta px-3.5 py-2 text-[13px] font-medium text-white transition-colors hover:bg-ink"
-              >
-                Execute plan <span aria-hidden>→</span>
-              </button>
-            </div>
           ) : null
         }
       />

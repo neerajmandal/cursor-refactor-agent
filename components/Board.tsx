@@ -13,7 +13,6 @@ import { ArchitecturePane } from "@/components/ArchitecturePane";
 import { BoardChrome, BoardOverflowItem, type BoardView } from "@/components/BoardChrome";
 import { CursorBriefPanel } from "@/components/CursorBriefPanel";
 import { EvidencePanel } from "@/components/EvidencePanel";
-import { RunNotesComposer } from "@/components/RunNotesComposer";
 import { SpecInspector } from "@/components/SpecInspector";
 import {
   CURRENT_ANALYZE_STAGES,
@@ -22,12 +21,7 @@ import {
   ThinkingStatus,
 } from "@/components/ThinkingStatus";
 import { persistBoardArchiveClient } from "@/lib/archive/client";
-import {
-  createMigrationSnapshot,
-  reconcileJourneyComponents,
-  validateAlignment,
-  workItemsFromSnapshot,
-} from "@/lib/journey";
+import { reconcileJourneyComponents } from "@/lib/journey";
 import {
   EMPTY_GRAPH,
   PHASE_LABEL,
@@ -38,7 +32,6 @@ import {
   type ExecutionReport,
   type Graph,
   type Journey,
-  type MigrationSnapshot,
   type NodeStatus,
   type RunBranch,
   type WorkItem,
@@ -129,7 +122,6 @@ export function Board() {
   const legacyRef = useStorage((root) => root.legacyRef ?? "");
   const targetRef = useStorage((root) => root.targetRef ?? "");
   const prompt = useStorage((root) => root.prompt);
-  const extraPrompt = useStorage((root) => root.extraPrompt ?? "");
   const legacyBaseUrl = useStorage((root) => root.legacyBaseUrl ?? "");
   const targetBaseUrl = useStorage((root) => root.targetBaseUrl ?? "");
   const fixtureCommand = useStorage((root) => root.fixtureCommand ?? "");
@@ -207,79 +199,6 @@ export function Board() {
     storage.set("evaluationRunId", "");
     storage.set("error", "");
   }, []);
-
-  const claimExecute = useMutation(({ storage }, snapshot: MigrationSnapshot) => {
-    const phase = storage.get("phase");
-    const retrying = phase === "done";
-    if (
-      (phase !== "aligning" && !retrying) ||
-      (phase === "aligning" && storage.get("executeRunId"))
-    ) {
-      return null;
-    }
-    const previousSnapshot = storage.get("executionSnapshot");
-    const previous =
-      previousSnapshot?.id === snapshot.id
-        ? ((storage.get("workItems") ?? {}) as Record<string, WorkItem>)
-        : {};
-    const componentIds = Object.keys(previous).length
-      ? Object.values(previous)
-          .filter((item) => item.status !== "done")
-          .map((item) => item.componentId)
-      : snapshot.toBe.nodes.map((node) => node.id);
-    if (!componentIds.length) return null;
-    const selected = new Set(componentIds);
-    const runSnapshot: MigrationSnapshot = {
-      ...snapshot,
-      toBe: {
-        ...snapshot.toBe,
-        nodes: snapshot.toBe.nodes.filter((node) => selected.has(node.id)),
-        edges: snapshot.toBe.edges.filter(
-          (edge) => selected.has(edge.from) && selected.has(edge.to),
-        ),
-      },
-    };
-    const items = workItemsFromSnapshot(
-      snapshot,
-      previous,
-      componentIds,
-    );
-    storage.set("phase", "executing");
-    storage.set("executionSnapshot", snapshot);
-    storage.set("executeAgentId", "pending");
-    storage.set("executeRunId", "pending");
-    storage.set("executionReport", null);
-    storage.set("evaluationReport", null);
-    storage.set("evaluationVideos", []);
-    storage.set("activeComponentIds", componentIds);
-    storage.set("nodeStatus", Object.fromEntries(
-      snapshot.toBe.nodes.map((node) => [node.id, "pending" as const]),
-    ));
-    storage.set("workItems", items);
-    storage.set("runBranches", [{
-      repoUrl: storage.get("targetRepo") ?? "",
-      branch: snapshot.executionBranch,
-    }]);
-    storage.set("error", "");
-    return runSnapshot;
-  }, []);
-
-  const attachExecutionRun = useMutation(
-    ({ storage }, agentId: string, runId: string) => {
-      const active = new Set(storage.get("activeComponentIds") ?? []);
-      const current = (storage.get("workItems") ?? {}) as Record<string, WorkItem>;
-      storage.set(
-        "workItems",
-        Object.fromEntries(
-          Object.entries(current).map(([id, item]) => [
-            id,
-            active.has(id) ? { ...item, agentId, runId } : item,
-          ]),
-        ),
-      );
-    },
-    [],
-  );
 
   const startAsIs = useCallback(async () => {
     if (!legacyRepo || !claimAnalyze("analyzing_current")) return;
@@ -660,64 +579,6 @@ export function Board() {
     workItems,
   ]);
 
-  async function execute() {
-    const reconciledJourneys = reconcileJourneyComponents(asIs, toBe, journeys);
-    const errors = validateAlignment(toBe, reconciledJourneys);
-    if (errors.length) {
-      patch({
-        journeys: reconciledJourneys,
-        error: errors.slice(0, 3).join(" · "),
-      });
-      return;
-    }
-    const snapshot = createMigrationSnapshot({
-      asIs,
-      toBe,
-      journeys: reconciledJourneys,
-      architectureVersion,
-    });
-    patch({
-      journeys: reconciledJourneys,
-      error: "",
-    });
-    const runSnapshot = claimExecute(snapshot);
-    if (!runSnapshot) return;
-    try {
-      const response = await fetch("/api/execute", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          envName,
-          legacyRepo,
-          legacyRef,
-          targetRepo,
-          targetRef,
-          prompt,
-          extraPrompt,
-          snapshot: runSnapshot,
-          legacyBaseUrl,
-          targetBaseUrl,
-          fixtureCommand,
-          requestKey: `${room.id}:execute:${runSnapshot.id}`,
-        }),
-      });
-      const data = (await response.json()) as AnalyzeResponse;
-      if (!response.ok || !data.agentId || !data.runId) {
-        throw new Error(data.error || "Failed to start execution");
-      }
-      patch({ executeAgentId: data.agentId, executeRunId: data.runId });
-      attachExecutionRun(data.agentId, data.runId);
-      setView("evidence");
-    } catch (caught) {
-      patch({
-        phase: "aligning",
-        executeAgentId: "",
-        executeRunId: "",
-        error: caught instanceof Error ? caught.message : "Execute failed",
-      });
-    }
-  }
-
   function retryAnalysis() {
     patch({
       analyzeRunId: "",
@@ -804,49 +665,10 @@ export function Board() {
             ) : null}
           </div>
         }
-        primaryAction={
-          phase === "aligning" ? (
-            <div className="flex items-center gap-2">
-              <RunNotesComposer
-                value={extraPrompt}
-                onChange={(value) => patch({ extraPrompt: value })}
-                appliesTo="execute"
-              />
-              <button
-                type="button"
-                onClick={() => void execute()}
-                className="inline-flex items-center gap-2 rounded-md bg-cta px-3.5 py-2 text-[13px] font-medium text-white transition-colors hover:bg-ink"
-              >
-                Execute plan <span aria-hidden>→</span>
-              </button>
-            </div>
-          ) : phase === "done" && executionSnapshot ? (
-            <div className="flex items-center gap-2">
-              <RunNotesComposer
-                value={extraPrompt}
-                onChange={(value) => patch({ extraPrompt: value })}
-                appliesTo="execute"
-              />
-              <button
-                type="button"
-                onClick={() => void execute()}
-                className="inline-flex items-center gap-2 rounded-md border border-line bg-white px-3.5 py-2 text-[13px] font-medium text-ink transition-colors hover:bg-paper-2"
-              >
-                Execute again
-              </button>
-            </div>
-          ) : null
-        }
         overflow={
           <>
             <BoardOverflowItem onClick={regenerate} disabled={!legacyRepo || busy}>
               Regenerate
-            </BoardOverflowItem>
-            <BoardOverflowItem
-              onClick={() => void execute()}
-              disabled={!executionSnapshot || busy}
-            >
-              Execute again
             </BoardOverflowItem>
             <BoardOverflowItem onClick={() => void copyLink()}>
               {copied ? "Copied" : "Copy link"}

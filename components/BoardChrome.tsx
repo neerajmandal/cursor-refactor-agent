@@ -15,13 +15,11 @@ const VIEW_LABEL: Record<BoardView, string> = {
 export function BoardChrome({
   view,
   onViewChange,
-  primaryAction,
   overflow,
   status,
 }: {
   view: BoardView;
   onViewChange: (view: BoardView) => void;
-  primaryAction?: ReactNode;
   overflow?: ReactNode;
   status?: ReactNode;
 }) {
@@ -54,7 +52,6 @@ export function BoardChrome({
         <p className="hidden text-[13px] text-muted sm:block">Architecture to outcomes</p>
         <div className="ml-auto flex items-center gap-3">
           {status}
-          {primaryAction}
           {overflow ? (
             <div className="relative" ref={menuRef}>
               <button

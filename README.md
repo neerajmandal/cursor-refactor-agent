@@ -8,14 +8,10 @@ The workflow is:
 1. A Cursor cloud agent maps the legacy request path and discovers one
    source-backed end-user journey.
 2. The same agent proposes a target architecture and component specifications.
-3. The team edits the journey and specs. Clicking Execute validates and freezes
-   that exact migration snapshot.
-4. A coordinator delegates each frozen component spec to a named subagent,
-   implements the plan, then proves the goal in the same run: computer use
-   sends two sample questions, those questions must go through OpenAI, and
-   the answers must persist in Neon. Cural shows `Goal achieved` only when
-   every required check passes, and posts the VM walkthrough videos on the
-   evidence board.
+3. The team reviews and edits the architecture and component specs.
+
+The execution API, run state, and evidence board remain available for external
+orchestration, but the board does not expose an Execute plan control.
 
 ## Artifact model
 
@@ -87,9 +83,9 @@ migration succeeded.
 
 ## Scripted proof
 
-Open [http://localhost:3000/preview](http://localhost:3000/preview), approve the
-sample plan, and execute it. The scripted preview walks through execution and
-the goal evidence surface without consuming cloud-agent credits.
+Open [http://localhost:3000/preview](http://localhost:3000/preview), review the
+sample plan, then open Evidence. The scripted preview shows completed goal
+evidence without consuming cloud-agent credits.
 
 A concept preview of the fuller diagnosis workflow (clean story diagrams plus
 System / Findings / Evidence) lives at
