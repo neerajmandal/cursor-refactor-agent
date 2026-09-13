@@ -83,7 +83,7 @@ export function SetupForm() {
   }
 
   return (
-    <main className="flex h-full min-h-0 flex-col px-6 py-5 md:px-8 md:py-6">
+    <main className="mx-auto flex w-full max-w-5xl flex-col px-6 py-6 md:px-8 md:py-8">
       <header className="flex shrink-0 items-end justify-between gap-6">
         <div className="min-w-0">
           <h1 className="font-serif text-[32px] leading-none tracking-tight text-ink">
@@ -126,10 +126,7 @@ export function SetupForm() {
         })}
       </ol>
 
-      <form
-        onSubmit={onSubmit}
-        className="mt-4 flex min-h-0 flex-1 flex-col gap-3"
-      >
+      <form onSubmit={onSubmit} className="mt-5 flex flex-col gap-3">
         <section className="setup-card setup-card-compact flex shrink-0 flex-wrap items-center gap-x-4 gap-y-2">
           <div className="min-w-[140px] shrink-0">
             <h2 className="text-[13px] font-semibold text-ink">
@@ -156,7 +153,7 @@ export function SetupForm() {
           </a>
         </section>
 
-        <div className="grid min-h-0 shrink-0 items-stretch gap-3 lg:grid-cols-[1fr_auto_1fr]">
+        <div className="grid items-start gap-3 lg:grid-cols-[1fr_auto_1fr]">
           <SystemCard
             tone="legacy"
             title="Legacy system"
@@ -172,7 +169,7 @@ export function SetupForm() {
             }
             ready={Boolean(legacyRepo.trim())}
           />
-          <div className="hidden items-center justify-center lg:flex" aria-hidden>
+          <div className="hidden items-center self-center justify-center lg:flex" aria-hidden>
             <span className="flex h-8 w-8 items-center justify-center rounded-full border border-line bg-node text-sm text-muted">
               →
             </span>
@@ -196,7 +193,7 @@ export function SetupForm() {
           ))}
         </datalist>
 
-        <section className="setup-card setup-card-compact flex min-h-0 flex-1 flex-col gap-2">
+        <section className="setup-card setup-card-compact flex flex-col gap-2">
           <div className="flex shrink-0 items-baseline justify-between gap-3">
             <label htmlFor="migration-prompt" className="text-[13px] font-semibold text-ink">
               Migration prompt
@@ -242,7 +239,7 @@ export function SetupForm() {
             required
             rows={2}
             placeholder="Split the monolith into a Next.js app and a Go API. Keep auth, drop the SOAP adapter."
-            className="min-h-[4.5rem] w-full flex-1 resize-none rounded-lg border border-line bg-paper px-3 py-2 text-[13px] leading-5 outline-none focus:border-ink"
+            className="max-h-40 min-h-[6.5rem] w-full resize-y rounded-lg border border-line bg-paper px-3 py-2 text-[13px] leading-5 outline-none focus:border-ink"
           />
         </section>
 
@@ -267,6 +264,13 @@ export function SetupForm() {
       </form>
     </main>
   );
+}
+
+function shortHint(hint: string): string {
+  if (hint.length > 140 || /rate limit/i.test(hint)) {
+    return "Could not list Cursor repos. Paste a GitHub URL.";
+  }
+  return hint;
 }
 
 function SystemCard({
@@ -344,8 +348,8 @@ function SystemCard({
           />
         </label>
       </div>
-      <p className="mt-1.5 truncate text-[11px] leading-4 text-muted" title={repoHint}>
-        {repoHint}
+      <p className="mt-1.5 line-clamp-2 break-words text-[11px] leading-4 text-muted" title={repoHint}>
+        {shortHint(repoHint)}
       </p>
     </section>
   );

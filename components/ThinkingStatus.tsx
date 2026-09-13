@@ -41,7 +41,7 @@ export function ThinkingStatus({
     <div
       role="status"
       aria-live="polite"
-      className="inline-flex items-center gap-2 rounded-full bg-ink px-3 py-1.5 text-[13px] font-medium text-white shadow-[0_1px_2px_rgb(0_0_0_/0.12)]"
+      className="inline-flex items-center gap-2 whitespace-nowrap rounded-full border border-line bg-white px-3 py-1.5 text-[13px] font-medium text-muted shadow-sm"
     >
       <ThinkingDots />
       <span>{label}</span>
