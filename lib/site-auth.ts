@@ -31,7 +31,10 @@ export function isPublicPath(pathname: string): boolean {
   return (
     pathname === "/login" ||
     pathname === "/api/login" ||
-    pathname === "/api/logout"
+    pathname === "/api/logout" ||
+    pathname === "/favicon.ico" ||
+    pathname === "/icon.svg" ||
+    pathname === "/icon"
   );
 }
 

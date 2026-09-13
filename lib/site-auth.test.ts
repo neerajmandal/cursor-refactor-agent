@@ -14,6 +14,7 @@ afterEach(() => {
 test("public paths are login-only", () => {
   expect(isPublicPath("/login")).toBe(true);
   expect(isPublicPath("/api/login")).toBe(true);
+  expect(isPublicPath("/icon.svg")).toBe(true);
   expect(isPublicPath("/projects")).toBe(false);
   expect(isPublicPath("/api/archives")).toBe(false);
 });

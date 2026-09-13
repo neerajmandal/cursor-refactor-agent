@@ -5,6 +5,9 @@ import "@/liveblocks.config";
 export const metadata: Metadata = {
   title: "Cural",
   description: "Align on architecture, then kick off Cursor cloud agents.",
+  icons: {
+    icon: [{ url: "/icon.svg", type: "image/svg+xml" }],
+  },
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
