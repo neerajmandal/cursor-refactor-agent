@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest";
 import { executionPlan } from "@/lib/execution";
 import {
   SAMPLE_UI_QUESTIONS,
+  SUBAGENT_PROMPT_MAX_CHARS,
   executePrompt,
+  fitCustomSubagentPrompt,
   operatorNotes,
   subagentPrompt,
 } from "@/lib/prompts";
@@ -67,10 +69,10 @@ describe("execution prompts", () => {
       expect(prompt).toContain("Unknown fault returns not-found");
       expect(prompt).toContain("Device telemetry ingestion");
       expect(prompt).toContain("cural/exec-snapshot-1");
-      expect(prompt).toContain("Copy the legacy app UI");
-      expect(prompt).toContain("V2");
       expect(prompt).not.toContain("Operator notes for this run");
     }
+    expect(parent).toContain("Copy the legacy app UI");
+    expect(parent).toContain("V2");
     expect(parent).toContain("Execute the frozen plan first");
     expect(parent).toContain("send the two sample questions through the legacy app");
     expect(parent).toContain("same two questions through the modern app");
@@ -172,7 +174,47 @@ describe("execution prompts", () => {
     expect(childAware).toContain("You implement one component of a hierarchical migration");
     expect(childAware).toContain("Direct children");
     expect(childAware).toContain("chat-service");
-    expect(childAware).toContain("ask(question)");
+    expect(childAware).not.toContain("ask(question)");
+    expect(childAware.length).toBeLessThanOrEqual(SUBAGENT_PROMPT_MAX_CHARS);
+  });
+
+  it("keeps custom subagent prompts under the Cursor API limit", () => {
+    const huge = "x".repeat(20_000);
+    const child = subagentPrompt(
+      {
+        ...component,
+        spec: {
+          ...component.spec,
+          purpose: huge,
+          interface: huge,
+          owns: huge,
+        },
+      },
+      {
+        ...migration,
+        executionBranch: "cural/exec-snapshot-1",
+        prompt: huge,
+        extraPrompt: huge,
+        plan: executionPlan({
+          nodes: [
+            {
+              id: "chat-controller",
+              label: "ChatController",
+              spec: { purpose: huge, interface: huge, owns: huge, dependsOn: huge, portFrom: huge, outOfScope: huge, doneWhen: huge },
+            },
+            {
+              id: "fault-service",
+              label: "FaultService",
+              spec: { purpose: huge, interface: huge, owns: huge, dependsOn: huge, portFrom: huge, outOfScope: huge, doneWhen: huge },
+            },
+          ],
+          edges: [{ from: "chat-controller", to: "fault-service" }],
+        }),
+      },
+    );
+
+    expect(child.length).toBeLessThanOrEqual(SUBAGENT_PROMPT_MAX_CHARS);
+    expect(fitCustomSubagentPrompt(huge).length).toBe(SUBAGENT_PROMPT_MAX_CHARS);
   });
 });
 

@@ -68,13 +68,8 @@ export function executionPlan(graph: Graph): ExecutionPlan {
 
 export function attachedSpec(component: ExecutionComponent): string {
   const formatted = formatSpec(component.spec);
-  const json = JSON.stringify(component.spec, null, 2);
   return `Frozen target-architecture spec for ${component.node.label} (${component.ref.id}):
-${formatted || "No execution spec was provided."}
-
-\`\`\`json
-${json}
-\`\`\``;
+${formatted || "No execution spec was provided."}`;
 }
 
 export function formatExecutionTree(plan: ExecutionPlan): string {

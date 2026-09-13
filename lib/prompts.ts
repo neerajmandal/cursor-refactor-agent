@@ -236,7 +236,7 @@ Target architecture tree:
 ${formatExecutionTree(plan) || "No target components."}
 
 Spawn only the root subagent(s): ${rootSlugs || "(none)"}.
-A parent implements its own layer, then spawns only its direct children (use those slugs). Children spawn their children. Do not skip levels. Do not implement a child's owns. Review each child diff against the attached spec and keep shared contracts consistent.
+A parent implements its own layer, then spawns only its direct children (use those slugs). Children spawn their children. Do not skip levels. Do not implement a child's owns. Each named subagent already has its own frozen spec — do not paste child specs into the spawn prompt. Review each child diff against that spec and keep shared contracts consistent.
 
 Components and attached target specs:
 ${roster}
@@ -274,6 +274,10 @@ ${goalReportShape(input.snapshot)}
 Include every component exactly once. Use passed on both reports only when every component is done, target checks pass, Gate A (OpenAI) passed, and Gate B (Neon) passed. If either gate failed, status must be failed and you must keep looping instead of stopping.${operatorNotes(input.extraPrompt)}`;
 }
 
+/** Cursor cloud rejects custom subagent `prompt` fields above this length. */
+export const SUBAGENT_PROMPT_MAX_CHARS = 10_000;
+const SUBAGENT_CONTEXT_MAX_CHARS = 400;
+
 export function subagentPrompt(node: GraphNode, input: {
   legacyRepo: string;
   targetRepo: string;
@@ -298,18 +302,18 @@ export function subagentPrompt(node: GraphNode, input: {
     .filter((component): component is NonNullable<typeof component> => Boolean(component));
   const specText = attachedSpec(self);
   const branchLine = input.executionBranch
-    ? `Work only on branch ${input.executionBranch} in the target repo. Do not commit to main.\n`
+    ? `Work only on branch ${input.executionBranch} in the target repo. Do not commit to main.`
     : "";
   const parentLine = parent
     ? `Parent: ${parent.node.label} [${parent.ref.slug}]. Implement against that interface. Do not rebuild the parent.`
     : "Parent: none. You are a root in the target architecture.";
   const childSection = children.length
-    ? `Direct children — spawn each after your layer is in place. Attach their frozen spec by using the named subagent slug. Do not implement their owns.\n${children
-        .map((child) => `### ${child.node.label} [${child.ref.slug}]\n${attachedSpec(child)}`)
-        .join("\n\n")}`
+    ? `Direct children — spawn each by slug after your layer is in place. Do not implement their owns.\n${children
+        .map((child) => `- ${child.node.label} [${child.ref.slug}]`)
+        .join("\n")}`
     : "Direct children: none. Implement only this component.";
 
-  return `You implement one component of a hierarchical migration.
+  return fitCustomSubagentPrompt(`You implement one component of a hierarchical migration.
 
 Component id: ${self.ref.id}
 Component name: ${self.node.label}
@@ -322,17 +326,28 @@ Use the legacy repo only as reference: ${input.legacyRepo}
 ${branchLine}
 
 Team intent:
-${input.prompt}
-
-UI (part of the parent goal — keep going until it holds):
-${MODERN_UI_RULE}
-Questions must be sent through OpenAI. Persist modern answers in the Neon database configured on this modern-repo branch (${input.executionBranch || "the assigned execution branch"}). Do not use main's Neon config, the legacy database, or Cural's archive database. Do not stub either.
+${clampChars(input.prompt, SUBAGENT_CONTEXT_MAX_CHARS)}
 
 ${specText}
 
 ${childSection}
 
-Stay inside this component's boundary. Match existing target-repo conventions if any files already exist.${operatorNotes(input.extraPrompt)}`;
+Stay inside this component's boundary. Match existing target-repo conventions if any files already exist.${operatorNotes(clampChars(input.extraPrompt, SUBAGENT_CONTEXT_MAX_CHARS) || undefined)}`);
+}
+
+export function fitCustomSubagentPrompt(
+  prompt: string,
+  max = SUBAGENT_PROMPT_MAX_CHARS,
+): string {
+  if (prompt.length <= max) return prompt;
+  if (max <= 1) return "…".slice(0, max);
+  return `${prompt.slice(0, max - 1).trimEnd()}…`;
+}
+
+function clampChars(text: string | undefined, max: number): string {
+  const value = text?.trim() ?? "";
+  if (!value || value.length <= max) return value;
+  return `${value.slice(0, Math.max(0, max - 1)).trimEnd()}…`;
 }
 
 export function operatorNotes(extraPrompt?: string): string {
