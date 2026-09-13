@@ -146,7 +146,6 @@ export function SetupForm() {
             onRepoChange={setLegacyRepo}
             branch={legacyRef}
             onBranchChange={setLegacyRef}
-            ready={Boolean(legacyRepo.trim())}
           />
           <div className="hidden items-center self-center justify-center lg:flex" aria-hidden>
             <span className="flex h-8 w-8 items-center justify-center rounded-full border border-line bg-node text-sm text-muted">
@@ -161,7 +160,6 @@ export function SetupForm() {
             onRepoChange={setTargetRepo}
             branch={targetRef}
             onBranchChange={setTargetRef}
-            ready={Boolean(targetRepo.trim())}
           />
         </div>
 
@@ -246,7 +244,6 @@ function SystemCard({
   onRepoChange,
   branch,
   onBranchChange,
-  ready,
 }: {
   tone: "legacy" | "target";
   title: string;
@@ -255,7 +252,6 @@ function SystemCard({
   onRepoChange: (value: string) => void;
   branch: string;
   onBranchChange: (value: string) => void;
-  ready: boolean;
 }) {
   return (
     <section
@@ -265,17 +261,9 @@ function SystemCard({
           : "setup-card setup-card-compact min-w-0 overflow-hidden"
       }
     >
-      <div className="flex items-center justify-between gap-2">
-        <div className="flex items-center gap-1.5">
-          <span className="text-muted">{icon}</span>
-          <h2 className="text-[13px] font-semibold text-ink">{title}</h2>
-        </div>
-        {ready ? null : (
-          <span className="flex items-center gap-1.5 text-[11px] text-muted">
-            <span className="h-1.5 w-1.5 rounded-full bg-line" aria-hidden />
-            Waiting
-          </span>
-        )}
+      <div className="flex items-center gap-1.5">
+        <span className="text-muted">{icon}</span>
+        <h2 className="text-[13px] font-semibold text-ink">{title}</h2>
       </div>
 
       <div className="mt-2.5 grid min-w-0 gap-2 sm:grid-cols-[minmax(0,1fr)_7.5rem]">
