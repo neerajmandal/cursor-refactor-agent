@@ -114,6 +114,36 @@ body {
   animation: cural-spin 0.7s linear infinite;
 }
 
+@keyframes thinking-dot {
+  0%,
+  70%,
+  100% {
+    opacity: 0.22;
+    transform: translateY(0);
+  }
+  35% {
+    opacity: 1;
+    transform: translateY(-1.5px);
+  }
+}
+
+.thinking-dot {
+  display: block;
+  width: 3.5px;
+  height: 3.5px;
+  border-radius: 999px;
+  background: currentColor;
+  animation: thinking-dot 1s ease-in-out infinite;
+}
+
+.thinking-dot:nth-child(2) {
+  animation-delay: 0.16s;
+}
+
+.thinking-dot:nth-child(3) {
+  animation-delay: 0.32s;
+}
+
 .field-input {
   width: 100%;
   background: transparent;

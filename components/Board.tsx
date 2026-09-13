@@ -15,6 +15,12 @@ import { CursorBriefPanel } from "@/components/CursorBriefPanel";
 import { EvidencePanel } from "@/components/EvidencePanel";
 import { RunNotesComposer } from "@/components/RunNotesComposer";
 import { SpecInspector } from "@/components/SpecInspector";
+import {
+  CURRENT_ANALYZE_STAGES,
+  TARGET_ANALYZE_STAGES,
+  TARGET_WAITING_STAGES,
+  ThinkingStatus,
+} from "@/components/ThinkingStatus";
 import { persistBoardArchiveClient } from "@/lib/archive/client";
 import {
   createMigrationSnapshot,
@@ -780,6 +786,14 @@ export function Board() {
               </p>
             ) : others.length > 0 ? (
               <p className="text-[12px] text-muted">{others.length + 1} here</p>
+            ) : phase === "analyzing_current" || phase === "analyzing_target" ? (
+              <ThinkingStatus
+                stages={
+                  phase === "analyzing_current"
+                    ? CURRENT_ANALYZE_STAGES
+                    : TARGET_ANALYZE_STAGES
+                }
+              />
             ) : (
               <p className="hidden text-[12px] text-muted lg:block">{PHASE_LABEL[phase]}</p>
             )}
@@ -897,6 +911,8 @@ export function Board() {
             selectedId={selected?.pane === "asIs" ? selected.id : null}
             nodeStatus={{}}
             collab
+            loading={phase === "analyzing_current" && asIs.nodes.length === 0}
+            stages={CURRENT_ANALYZE_STAGES}
             onSelect={(id) => setSelected(id ? { pane: "asIs", id } : null)}
             onMove={(id, x, y) => moveNode("asIs", id, x, y)}
             onCursor={(cursor) => updateMyPresence({ cursor })}
@@ -911,6 +927,15 @@ export function Board() {
             selectedId={selected?.pane === "toBe" ? selected.id : null}
             nodeStatus={asNodeStatus(nodeStatus)}
             collab
+            loading={
+              (phase === "analyzing_current" || phase === "analyzing_target") &&
+              toBe.nodes.length === 0
+            }
+            stages={
+              phase === "analyzing_target"
+                ? TARGET_ANALYZE_STAGES
+                : TARGET_WAITING_STAGES
+            }
             onSelect={(id) => setSelected(id ? { pane: "toBe", id } : null)}
             onMove={(id, x, y) => moveNode("toBe", id, x, y)}
             onCursor={(cursor) => updateMyPresence({ cursor })}

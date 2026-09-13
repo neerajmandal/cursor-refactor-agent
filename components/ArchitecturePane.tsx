@@ -15,6 +15,7 @@ import {
   type Node,
 } from "@xyflow/react";
 import { ComponentNode, type ComponentFlowNode } from "@/components/ComponentNode";
+import { ThinkingStatus } from "@/components/ThinkingStatus";
 import { PresenceCursors } from "@/components/PresenceCursors";
 import { layoutGraph } from "@/lib/graph";
 import type { Graph, NodeStatus } from "@/lib/types";
@@ -120,6 +121,8 @@ function PaneInner({
   highlightIds,
   collab,
   nodesDraggable = true,
+  loading = false,
+  stages,
   onSelect,
   onMove,
   onCursor,
@@ -134,6 +137,8 @@ function PaneInner({
   highlightIds?: string[] | null;
   collab?: boolean;
   nodesDraggable?: boolean;
+  loading?: boolean;
+  stages?: readonly string[];
   onSelect: (id: string | null) => void;
   onMove: (id: string, x: number, y: number) => void;
   onCursor?: (
@@ -175,9 +180,15 @@ function PaneInner({
       </div>
       <div className="relative min-h-0 flex-1">
         {graph.nodes.length === 0 ? (
-          <p className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center text-sm text-muted">
-            Waiting for architecture
-          </p>
+          <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center">
+            {loading && stages?.length ? (
+              <ThinkingStatus stages={stages} />
+            ) : (
+              <p className="inline-flex items-center gap-2 text-sm text-muted">
+                Waiting for architecture
+              </p>
+            )}
+          </div>
         ) : null}
         <ReactFlow
           nodes={nodes}
@@ -233,6 +244,8 @@ export function ArchitecturePane(props: {
   highlightIds?: string[] | null;
   collab?: boolean;
   nodesDraggable?: boolean;
+  loading?: boolean;
+  stages?: readonly string[];
   onSelect: (id: string | null) => void;
   onMove: (id: string, x: number, y: number) => void;
   onCursor?: (
