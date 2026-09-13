@@ -271,6 +271,42 @@ export function Board() {
     [],
   );
 
+  const applyExecutionPoll = useMutation(
+    ({ storage }, data: PollResponse) => {
+      const currentItems = (storage.get("workItems") ?? {}) as Record<
+        string,
+        WorkItem
+      >;
+      const currentBranches = (storage.get("runBranches") ?? []) as RunBranch[];
+      const nextItems = mergeWorkItems(
+        currentItems,
+        data.nodeStatus,
+        data.executionReport,
+        data.branches,
+      );
+
+      if (data.nodeStatus) storage.set("nodeStatus", data.nodeStatus);
+      storage.set("workItems", nextItems);
+      if (data.executionReport) {
+        storage.set("executionReport", data.executionReport);
+      }
+      if (data.evaluationReport) {
+        storage.set("evaluationReport", data.evaluationReport);
+      }
+      if (data.evaluationVideos) {
+        storage.set("evaluationVideos", data.evaluationVideos);
+      }
+      storage.set(
+        "runBranches",
+        mergeBranches(currentBranches, data.branches),
+      );
+      if (data.status === "running") storage.set("error", "");
+
+      return nextItems;
+    },
+    [],
+  );
+
   const retireEvaluationPhase = useMutation(({ storage }) => {
     const phase = storage.get("phase");
     if (phase !== "evaluating" && phase !== "parity_failed") return;
@@ -497,23 +533,14 @@ export function Board() {
         );
         const data = (await response.json()) as PollResponse;
         if (cancelled) return;
-        const nextItems = mergeWorkItems(
-          workItems,
-          data.nodeStatus,
-          data.executionReport,
-          data.branches,
-        );
-        patch({
-          nodeStatus: data.nodeStatus ?? nodeStatus,
-          workItems: nextItems,
-          executionReport: data.executionReport ?? undefined,
-          evaluationReport: data.evaluationReport ?? undefined,
-          evaluationVideos: data.evaluationVideos ?? undefined,
-          runBranches: mergeBranches(runBranches, data.branches),
-          error: data.status === "running" ? "" : undefined,
-        });
+        if (response.status === 429) {
+          patch({
+            error: data.error || "Cloud status is rate limited; retrying shortly",
+          });
+          return;
+        }
+        const nextItems = applyExecutionPoll(data);
         if (data.status === "running") {
-          patch({ error: "" });
           return;
         }
         if (
@@ -556,21 +583,19 @@ export function Board() {
     }
 
     void poll();
-    const interval = window.setInterval(() => void poll(), 2500);
+    const interval = window.setInterval(() => void poll(), 10_000);
     return () => {
       cancelled = true;
       window.clearInterval(interval);
     };
   }, [
+    applyExecutionPoll,
     executionSnapshot,
     activeComponentIds,
     executeAgentId,
     executeRunId,
-    nodeStatus,
     patch,
     phase,
-    runBranches,
-    workItems,
   ]);
 
   useEffect(() => {

@@ -35,6 +35,13 @@ export async function GET(
     return NextResponse.json(result);
   } catch (error) {
     const message = error instanceof Error ? error.message : "Poll failed";
-    return NextResponse.json({ error: message }, { status: 500 });
+    const rateLimited = /rate limit|too many requests|\b429\b/i.test(message);
+    return NextResponse.json(
+      { error: message },
+      {
+        status: rateLimited ? 429 : 500,
+        headers: rateLimited ? { "Retry-After": "60" } : undefined,
+      },
+    );
   }
 }
