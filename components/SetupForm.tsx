@@ -146,7 +146,6 @@ export function SetupForm() {
             onRepoChange={setLegacyRepo}
             branch={legacyRef}
             onBranchChange={setLegacyRef}
-            repoHint="Paste a GitHub URL."
             ready={Boolean(legacyRepo.trim())}
           />
           <div className="hidden items-center self-center justify-center lg:flex" aria-hidden>
@@ -162,7 +161,6 @@ export function SetupForm() {
             onRepoChange={setTargetRepo}
             branch={targetRef}
             onBranchChange={setTargetRef}
-            repoHint="Must already exist. Agents write migrated code here."
             ready={Boolean(targetRepo.trim())}
           />
         </div>
@@ -248,7 +246,6 @@ function SystemCard({
   onRepoChange,
   branch,
   onBranchChange,
-  repoHint,
   ready,
 }: {
   tone: "legacy" | "target";
@@ -258,7 +255,6 @@ function SystemCard({
   onRepoChange: (value: string) => void;
   branch: string;
   onBranchChange: (value: string) => void;
-  repoHint: string;
   ready: boolean;
 }) {
   return (
@@ -289,17 +285,15 @@ function SystemCard({
 
       <div className="mt-2.5 grid min-w-0 gap-2 sm:grid-cols-[minmax(0,1fr)_7.5rem]">
         <label className="block min-w-0">
-          <span className="sr-only">Repository</span>
+          <span className="sr-only">Repository URL</span>
           <input
+            type="url"
             value={repo}
             onChange={(event) => onRepoChange(event.target.value)}
             required
-            placeholder={
-              tone === "legacy"
-                ? "https://github.com/org/legacy"
-                : "https://github.com/org/new"
-            }
-            title={repoHint}
+            autoComplete="off"
+            spellCheck={false}
+            placeholder="https://github.com/org/repo"
             className="card-input min-w-0"
           />
         </label>
@@ -314,9 +308,6 @@ function SystemCard({
           />
         </label>
       </div>
-      <p className="mt-1.5 line-clamp-2 break-all text-[11px] leading-4 text-muted" title={repoHint}>
-        {repoHint}
-      </p>
     </section>
   );
 }
