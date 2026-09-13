@@ -83,7 +83,7 @@ export function SetupForm() {
   }
 
   return (
-    <main className="mx-auto flex w-full max-w-5xl flex-col px-6 py-6 md:px-8 md:py-8">
+    <main className="mx-auto flex w-full min-w-0 max-w-5xl flex-col px-6 py-6 md:px-8 md:py-8">
       <header className="flex shrink-0 items-end justify-between gap-6">
         <div className="min-w-0">
           <h1 className="font-serif text-[32px] leading-none tracking-tight text-ink">
@@ -126,7 +126,7 @@ export function SetupForm() {
         })}
       </ol>
 
-      <form onSubmit={onSubmit} className="mt-5 flex flex-col gap-3">
+      <form onSubmit={onSubmit} className="mt-5 flex min-w-0 flex-col gap-3">
         <section className="setup-card setup-card-compact flex shrink-0 flex-wrap items-center gap-x-4 gap-y-2">
           <div className="min-w-[140px] shrink-0">
             <h2 className="text-[13px] font-semibold text-ink">
@@ -153,7 +153,7 @@ export function SetupForm() {
           </a>
         </section>
 
-        <div className="grid items-start gap-3 lg:grid-cols-[1fr_auto_1fr]">
+        <div className="grid min-w-0 items-start gap-3 lg:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)]">
           <SystemCard
             tone="legacy"
             title="Legacy system"
@@ -298,8 +298,8 @@ function SystemCard({
     <section
       className={
         tone === "target"
-          ? "setup-card setup-card-compact bg-accent-soft/50"
-          : "setup-card setup-card-compact"
+          ? "setup-card setup-card-compact min-w-0 overflow-hidden bg-accent-soft/50"
+          : "setup-card setup-card-compact min-w-0 overflow-hidden"
       }
     >
       <div className="flex items-center justify-between gap-2">
@@ -320,8 +320,8 @@ function SystemCard({
         )}
       </div>
 
-      <div className="mt-2.5 grid gap-2 sm:grid-cols-[1fr_7.5rem]">
-        <label className="min-w-0 block">
+      <div className="mt-2.5 grid min-w-0 gap-2 sm:grid-cols-[minmax(0,1fr)_7.5rem]">
+        <label className="block min-w-0">
           <span className="sr-only">Repository</span>
           <input
             value={repo}
@@ -334,21 +334,21 @@ function SystemCard({
                 : "https://github.com/org/new"
             }
             title={repoHint}
-            className="card-input"
+            className="card-input min-w-0"
           />
         </label>
-        <label className="block">
+        <label className="block min-w-0">
           <span className="sr-only">Default branch</span>
           <input
             value={branch}
             onChange={(event) => onBranchChange(event.target.value)}
             placeholder="main"
             title="Optional branch, tag, or commit SHA"
-            className="card-input font-mono text-[12px]"
+            className="card-input min-w-0 font-mono text-[12px]"
           />
         </label>
       </div>
-      <p className="mt-1.5 line-clamp-2 break-words text-[11px] leading-4 text-muted" title={repoHint}>
+      <p className="mt-1.5 line-clamp-2 break-all text-[11px] leading-4 text-muted" title={repoHint}>
         {shortHint(repoHint)}
       </p>
     </section>
