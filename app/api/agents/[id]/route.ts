@@ -1,36 +1,34 @@
 import { NextResponse } from "next/server";
 import { pollRun } from "@/lib/cursor";
+import type { ImplementationPlanReport, ResearchReport } from "@/lib/types";
 
 export const runtime = "nodejs";
+export const maxDuration = 60;
 
-export async function GET(
+export async function POST(
   request: Request,
   context: { params: Promise<{ id: string }> },
 ) {
   try {
     const { id } = await context.params;
-    const url = new URL(request.url);
-    const runId = url.searchParams.get("runId");
-    const componentIds = url.searchParams.get("componentIds");
-    const componentsRaw = url.searchParams.get("components");
-    const kindRaw = url.searchParams.get("kind");
-    if (!runId) {
-      return NextResponse.json({ error: "runId is required" }, { status: 400 });
+    const body = (await request.json()) as {
+      runId?: string;
+      kind?: "research" | "plan" | "implement";
+      research?: ResearchReport;
+      plan?: ImplementationPlanReport;
+    };
+    if (!body.runId || !body.kind) {
+      return NextResponse.json(
+        { error: "runId and kind are required" },
+        { status: 400 },
+      );
     }
-    const components = componentsRaw
-      ? componentsRaw.split(",").flatMap((item) => {
-          const [id, ...labelParts] = item.split("|");
-          if (!id) return [];
-          return [{ id, label: labelParts.join("|") || id }];
-        })
-      : undefined;
     const result = await pollRun({
       agentId: id,
-      runId,
-      componentIds: componentIds ? componentIds.split(",").filter(Boolean) : undefined,
-      components,
-      kind:
-        kindRaw === "execute" ? kindRaw : "analyze",
+      runId: body.runId,
+      kind: body.kind,
+      research: body.research,
+      plan: body.plan,
     });
     return NextResponse.json(result);
   } catch (error) {

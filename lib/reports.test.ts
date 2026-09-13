@@ -1,228 +1,241 @@
 import { describe, expect, it } from "vitest";
 import {
-  MAX_PROOF_CYCLES,
-  NEON_GOAL_CHECK,
-  OPENAI_GOAL_CHECK,
-  SAMPLE_UI_QUESTIONS,
-} from "@/lib/prompts";
-import {
-  extractEvaluationReport,
-  extractExecutionReport,
+  extractImplementationResult,
+  extractPlanResult,
   extractProgress,
-  failedGoalGates,
-  isVideoArtifactPath,
-  mergeEvaluationVideos,
+  extractResearchResult,
   redactSecrets,
 } from "@/lib/reports";
+import type {
+  ImplementationPlanReport,
+  ResearchReport,
+} from "@/lib/types";
 
-const completeEvaluation = {
-  status: "passed",
-  summary: "All proof gates passed",
-  testCycles: 2,
-  videos: [{
-    journeyId: "ask-a-question",
-    path: "artifacts/computer-use.mp4",
-    label: "Computer-use walkthrough",
-  }],
-  journeys: [{
-    journeyId: "ask-a-question",
-    status: "passed",
-    checks: [
-      ...SAMPLE_UI_QUESTIONS.map((question) => ({
-        name: question,
-        status: "passed",
-        legacy: `Legacy answer for ${question}`,
-        target: `Modern answer for ${question}`,
-        difference: "Wording differs; diagnosis and actions agree.",
-        evidence: ["artifacts/computer-use.mp4"],
-      })),
-      {
-        name: OPENAI_GOAL_CHECK,
-        status: "passed",
-        evidence: ["response id resp_first", "response id resp_second"],
-      },
-      {
-        name: NEON_GOAL_CHECK,
-        status: "passed",
-        evidence: [
-          "Neon endpoint ep-example",
-          `row 1: ${SAMPLE_UI_QUESTIONS[0]}`,
-          `row 2: ${SAMPLE_UI_QUESTIONS[1]}`,
-        ],
-      },
-    ],
-  }],
+const research: ResearchReport = {
+  goal: "Modernize",
+  scope: "Question flow",
+  requestFlow: ["UI", "API"],
+  findings: [],
+  questions: [
+    {
+      question: "Question one?",
+      legacyAnswer: "Old answer one",
+      generation: "Worker",
+      display: "Panel",
+      storage: "History",
+      evidence: ["one.png"],
+    },
+    {
+      question: "Question two?",
+      legacyAnswer: "Old answer two",
+      generation: "Worker",
+      display: "Panel",
+      storage: "History",
+      evidence: ["two.png"],
+    },
+  ],
+  risks: [],
+  openQuestions: [],
 };
 
-describe("strict agent result protocol", () => {
-  it("accepts only exact progress messages", () => {
-    const statuses = extractProgress(
+const plan: ImplementationPlanReport = {
+  architectureReasoning: "Direct flow",
+  decisions: [],
+  phases: [{
+    id: "build",
+    title: "Build",
+    steps: [{
+      id: "api",
+      title: "Build API",
+      changes: "Add route",
+      componentIds: ["api"],
+      dependsOn: [],
+      doneWhen: ["Works"],
+      status: "pending",
+    }],
+  }],
+  verify: {
+    questions: research.questions.map(({ question, legacyAnswer }) => ({
+      question,
+      legacyAnswer,
+    })) as ImplementationPlanReport["verify"]["questions"],
+    instructions: ["Use UI"],
+    successCriteria: ["Works"],
+  },
+};
+
+function block(marker: string, value: unknown) {
+  return `${marker}\n\`\`\`json\n${JSON.stringify(value)}\n\`\`\``;
+}
+
+describe("workflow report protocol", () => {
+  it("extracts a report when prose sits between the marker and JSON", () => {
+    const payload = {
+      document: {
+        filename: "research-plan.md",
+        artifactPath: "artifacts/research-plan.md",
+        content: "# Research",
+      },
+      graph: { nodes: [], edges: [] },
+      report: research,
+    };
+    const result = extractResearchResult(
       [
-        'CURAL_STATUS {"id":"api","status":"running"}',
-        "api was probably done",
-        'CURAL_STATUS {"id":"ui","status":"done"}',
+        "Research finished.",
+        "CURAL_RESEARCH_REPORT",
+        "",
+        "The complete JSON is in /opt/cursor/artifacts/cural-research-report.json.",
+        "```json",
+        JSON.stringify(payload),
+        "```",
       ].join("\n"),
-      ["api", "ui", "db"],
     );
-    expect(statuses).toEqual({ api: "running", ui: "done", db: "pending" });
+    expect(result?.report.goal).toBe(research.goal);
+    expect(result?.document.filename).toBe("research-plan.md");
   });
 
-  it("parses a terminal component report", () => {
-    const report = extractExecutionReport(`
-CURAL_EXECUTION_REPORT
-\`\`\`json
-{"status":"passed","components":[{"id":"api","status":"done","summary":"Implemented"}]}
-\`\`\`
-`);
-    expect(report).toEqual({
-      status: "passed",
-      components: [{ id: "api", status: "done", summary: "Implemented" }],
-    });
+  it("extracts a raw artifact JSON file and JSON that embeds markdown fences", () => {
+    const payload = {
+      document: {
+        filename: "research-plan.md",
+        artifactPath: "artifacts/research-plan.md",
+        content: "# Research\n\n```ts\nconst value = 1;\n```\n",
+      },
+      graph: { nodes: [], edges: [] },
+      report: research,
+    };
+    expect(extractResearchResult(JSON.stringify(payload, null, 2))?.document.content)
+      .toContain("const value = 1");
+    expect(
+      extractResearchResult(
+        `CURAL_RESEARCH_REPORT\n\`\`\`json\n${JSON.stringify(payload)}\n\`\`\``,
+      )?.document.content,
+    ).toContain("```ts");
   });
 
-  it("does not turn a failed parity report into success", () => {
-    const report = extractEvaluationReport(`
-CURAL_EVALUATION_REPORT
-\`\`\`json
-{
-  "status":"passed",
-  "summary":"Mismatch found",
-  "videos":[{"journeyId":"checkout","path":"artifacts/checkout.mp4","label":"Checkout walkthrough"}],
-  "journeys":[{
-    "journeyId":"checkout",
-    "status":"failed",
-    "checks":[{
-      "name":"Order total",
-      "status":"failed",
-      "legacy":"10.00",
-      "target":"11.00",
-      "difference":"Totals differ",
-      "evidence":["artifacts/checkout.mp4"]
-    }]
-  }]
-}
-\`\`\`
-`);
-    expect(report?.status).toBe("failed");
-    expect(report?.journeys[0].checks[0].difference).toBe("Totals differ");
-    expect(report?.videos).toEqual([{
-      journeyId: "checkout",
-      path: "artifacts/checkout.mp4",
-      label: "Checkout walkthrough",
-    }]);
+  it("extracts exactly two research observations and the document", () => {
+    const result = extractResearchResult(
+      block("CURAL_RESEARCH_REPORT", {
+        document: {
+          filename: "research-plan.md",
+          artifactPath: "artifacts/research-plan.md",
+          content: "# Research",
+        },
+        graph: { nodes: [], edges: [] },
+        report: research,
+      }),
+    );
+    expect(result?.report.questions).toHaveLength(2);
+    expect(result?.document.filename).toBe("research-plan.md");
   });
 
-  it("refuses passed reports that skip the OpenAI or Neon gates", () => {
-    const report = extractEvaluationReport(`
-CURAL_EVALUATION_REPORT
-\`\`\`json
-{
-  "status":"passed",
-  "summary":"looks fine on screen",
-  "journeys":[{
-    "journeyId":"checkout",
-    "status":"passed",
-    "checks":[{
-      "name":"Order total",
-      "status":"passed",
-      "legacy":"10.00",
-      "target":"10.00",
-      "difference":"",
-      "evidence":[]
-    }]
-  }]
-}
-\`\`\`
-`);
-    expect(report?.status).toBe("failed");
-    expect(failedGoalGates(report!)).toEqual(
-      expect.arrayContaining([OPENAI_GOAL_CHECK, NEON_GOAL_CHECK]),
+  it("extracts a plan from an artifact JSON and restores host verify questions", () => {
+    const paraphrased = structuredClone(plan);
+    paraphrased.verify.questions[0] = {
+      question: "Slightly different question?",
+      legacyAnswer: "Changed",
+    };
+    const result = extractPlanResult(
+      JSON.stringify({
+        document: {
+          filename: "implementation-plan.md",
+          artifactPath: "artifacts/implementation-plan.md",
+          content: "See artifacts/implementation-plan.md",
+        },
+        graph: { nodes: [], edges: [] },
+        report: paraphrased,
+      }),
+      research,
+    );
+    expect(result?.report.verify.questions).toEqual(plan.verify.questions);
+    expect(result?.document.filename).toBe("implementation-plan.md");
+  });
+
+  it("accepts different modern answers when UI, OpenAI, Neon, branch, and recording pass", () => {
+    const result = extractImplementationResult(
+      block("CURAL_IMPLEMENTATION_REPORT", {
+        status: "passed",
+        summary: "Modern behavior works",
+        testCycles: 1,
+        steps: [{ id: "api", status: "done", summary: "Built" }],
+        observations: plan.verify.questions.map((item, index) => ({
+          ...item,
+          modernAnswer: `Entirely new answer ${index + 1}`,
+          evidence: ["artifacts/modern-ui-verification.mp4"],
+        })),
+        openAiEvidence: ["response id resp_one", "response id resp_two"],
+        neonEvidence: [
+          "endpoint ep-example",
+          `row ${plan.verify.questions[0].question}`,
+          `row ${plan.verify.questions[1].question}`,
+        ],
+        recording: {
+          path: "artifacts/modern-ui-verification.mp4",
+          label: "Modern UI verification",
+        },
+        targetBranch: {
+          name: "cural/exec-test",
+          commit: "abcdef1234567",
+          pushed: true,
+        },
+        documents: [
+          {
+            filename: "implementation-summary.md",
+            artifactPath: "artifacts/implementation-summary.md",
+            content: "# Summary",
+          },
+          {
+            filename: "verification-report.md",
+            artifactPath: "artifacts/verification-report.md",
+            content: "# Verification",
+          },
+        ],
+      }),
+      plan,
+    );
+    expect(result?.report.status).toBe("passed");
+    expect(result?.report.observations[0].modernAnswer).not.toBe(
+      research.questions[0].legacyAnswer,
     );
   });
 
-  it("accepts complete UI, OpenAI, and Neon proof without a named branch", () => {
-    const report = extractEvaluationReport(`
-CURAL_EVALUATION_REPORT
-\`\`\`json
-${JSON.stringify(completeEvaluation)}
-\`\`\`
-`);
-    expect(report?.status).toBe("passed");
-    expect(report?.testCycles).toBe(2);
-    expect(failedGoalGates(report!)).toEqual([]);
-  });
-
-  it("rejects out-of-range cycles and missing computer-use artifacts", () => {
-    const invalid = structuredClone(completeEvaluation);
-    invalid.testCycles = MAX_PROOF_CYCLES + 1;
-    invalid.journeys[0].checks[0].evidence = ["called /api/chat directly"];
-    const report = extractEvaluationReport(`
-CURAL_EVALUATION_REPORT
-\`\`\`json
-${JSON.stringify(invalid)}
-\`\`\`
-`);
-    expect(report?.status).toBe("failed");
-    expect(failedGoalGates(report!)).toEqual(
-      expect.arrayContaining([
-        `1-${MAX_PROOF_CYCLES} complete computer-use proof cycles`,
-        `Computer-use proof for "${SAMPLE_UI_QUESTIONS[0]}"`,
-      ]),
+  it("fails completion without the recording and required provider evidence", () => {
+    const result = extractImplementationResult(
+      block("CURAL_IMPLEMENTATION_REPORT", {
+        status: "passed",
+        testCycles: 1,
+        steps: [{ id: "api", status: "done", summary: "Built" }],
+        observations: plan.verify.questions.map((item) => ({
+          ...item,
+          modernAnswer: "New answer",
+          evidence: [],
+        })),
+        targetBranch: {
+          name: "cural/exec-test",
+          commit: "abcdef1234567",
+          pushed: true,
+        },
+        documents: [
+          { filename: "implementation-summary.md", artifactPath: "a.md", content: "x" },
+          { filename: "verification-report.md", artifactPath: "b.md", content: "x" },
+        ],
+      }),
+      plan,
     );
+    expect(result?.report.status).toBe("failed");
   });
 
-  it("redacts credentials before report data is exposed", () => {
+  it("parses exact step progress and redacts credentials", () => {
+    expect(
+      extractProgress(
+        'CURAL_STEP_STATUS {"id":"api","status":"running"}',
+        ["api", "ui"],
+      ),
+    ).toEqual({ api: "running", ui: "pending" });
     expect(
       redactSecrets(
-        "DATABASE_URL=postgresql://user:pass@ep-test.neon.tech/db OPENAI_API_KEY=sk-proj-abcdefghijklmnop",
+        "DATABASE_URL=postgres://user:pass@ep-test/db OPENAI_API_KEY=sk-proj-abcdefghijklmnop",
       ),
     ).toBe("[REDACTED_ENV_VALUE] [REDACTED_ENV_VALUE]");
-  });
-
-  it("defaults missing videos to an empty list", () => {
-    const report = extractEvaluationReport(`
-CURAL_EVALUATION_REPORT
-\`\`\`json
-{
-  "status":"passed",
-  "summary":"ok",
-  "journeys":[{
-    "journeyId":"checkout",
-    "status":"passed",
-    "checks":[{
-      "name":"Order total",
-      "status":"passed",
-      "legacy":"10.00",
-      "target":"10.00",
-      "difference":"",
-      "evidence":[]
-    }]
-  }]
-}
-\`\`\`
-`);
-    expect(report?.videos).toEqual([]);
-  });
-
-  it("merges reported videos with listed VM artifacts", () => {
-    expect(
-      mergeEvaluationVideos(
-        [{ path: "artifacts/a.mp4", label: "Reported", journeyId: "j1" }],
-        [
-          { path: "artifacts/a.mp4", label: "a.mp4", sizeBytes: 12 },
-          { path: "artifacts/b.webm", label: "b.webm", sizeBytes: 34 },
-        ],
-      ),
-    ).toEqual([
-      {
-        path: "artifacts/a.mp4",
-        label: "Reported",
-        journeyId: "j1",
-        sizeBytes: 12,
-      },
-      { path: "artifacts/b.webm", label: "b.webm", sizeBytes: 34 },
-    ]);
-    expect(isVideoArtifactPath("artifacts/demo.MP4")).toBe(true);
-    expect(isVideoArtifactPath("artifacts/report.json")).toBe(false);
   });
 });

@@ -49,7 +49,12 @@ describe("durable board initialization", () => {
         data: expect.objectContaining({
           legacyRef: "legacy-sha",
           targetRef: "target-sha",
-          phase: "analyzing_current",
+          phase: "research",
+          phaseStatuses: {
+            research: "running",
+            plan: "pending",
+            implement: "pending",
+          },
         }),
       }),
     );

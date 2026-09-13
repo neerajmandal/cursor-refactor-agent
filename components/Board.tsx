@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   useMutation,
   useOthers,
@@ -8,127 +8,91 @@ import {
   useStorage,
   useUpdateMyPresence,
 } from "@liveblocks/react/suspense";
-import { AgentIdLink } from "@/components/AgentIdLink";
 import { ArchitecturePane } from "@/components/ArchitecturePane";
+import { ArtifactDrawer } from "@/components/ArtifactDrawer";
+import { AgentIdLink } from "@/components/AgentIdLink";
 import { BoardChrome, BoardOverflowItem } from "@/components/BoardChrome";
-import { CursorBriefPanel } from "@/components/CursorBriefPanel";
-import { EvidencePanel } from "@/components/EvidencePanel";
-import { SpecInspector } from "@/components/SpecInspector";
-import {
-  CURRENT_ANALYZE_STAGES,
-  TARGET_ANALYZE_STAGES,
-  TARGET_WAITING_STAGES,
-  ThinkingStatus,
-} from "@/components/ThinkingStatus";
+import { WorkflowDocumentPanel } from "@/components/WorkflowDocumentPanel";
 import { persistBoardArchiveClient } from "@/lib/archive/client";
 import { boardViewHref, type BoardView } from "@/lib/board-view";
-import {
-  createMigrationSnapshot,
-  reconcileJourneyComponents,
-  validateAlignment,
-  workItemsFromSnapshot,
-} from "@/lib/journey";
+import { createMigrationSnapshot } from "@/lib/journey";
 import {
   EMPTY_GRAPH,
-  PHASE_LABEL,
   isCloudAgentId,
+  RECOVER_RUN_ID,
   type BoardStorage,
-  type EvaluationReport,
-  type EvaluationVideo,
-  type ExecutionReport,
   type Graph,
-  type Journey,
-  type MigrationSnapshot,
+  type ImplementationPlanReport,
+  type ImplementationReport,
   type NodeStatus,
+  type Phase,
+  type PhaseStatuses,
+  type ResearchReport,
   type RunBranch,
-  type WorkItem,
+  type WorkflowDocument,
 } from "@/lib/types";
+import {
+  canApprovePlan,
+  canCreatePlan,
+  defaultPhaseStatuses,
+} from "@/lib/workflow";
 
-type View = BoardView;
-type AnalyzeResponse = { agentId?: string; runId?: string; error?: string };
+type StartResponse = { agentId?: string; runId?: string; error?: string };
+const NO_DOCUMENTS: Record<string, WorkflowDocument> = {};
 type PollResponse = {
   status?: string;
-  graph?: Graph;
-  journeys?: Journey[];
   error?: string;
+  researchResult?: {
+    graph: Graph;
+    report: ResearchReport;
+    document: Pick<WorkflowDocument, "filename" | "artifactPath" | "content">;
+  };
+  planResult?: {
+    graph: Graph;
+    report: ImplementationPlanReport;
+    document: Pick<WorkflowDocument, "filename" | "artifactPath" | "content">;
+  };
+  implementationResult?: {
+    report: ImplementationReport;
+    steps: { id: string; status: "done" | "error"; summary: string }[];
+    documents: Pick<WorkflowDocument, "filename" | "artifactPath" | "content">[];
+  };
   nodeStatus?: Record<string, NodeStatus>;
-  executionReport?: ExecutionReport;
-  evaluationReport?: EvaluationReport;
-  evaluationVideos?: EvaluationVideo[];
   branches?: RunBranch[];
 };
 
-function asNodeStatus(
-  value: Record<string, unknown> | null | undefined,
-): Record<string, NodeStatus> {
-  const next: Record<string, NodeStatus> = {};
-  if (!value) return next;
-  for (const [key, item] of Object.entries(value)) {
-    if (
-      item === "pending" ||
-      item === "running" ||
-      item === "done" ||
-      item === "error"
-    ) {
-      next[key] = item;
-    }
-  }
-  return next;
-}
-
-function mergeBranches(current: RunBranch[], incoming: RunBranch[] = []): RunBranch[] {
-  const keyed = new Map(
+function mergeBranches(current: RunBranch[], incoming: RunBranch[] = []) {
+  const values = new Map(
     [...current, ...incoming].map((branch) => [
       `${branch.repoUrl}:${branch.branch ?? ""}:${branch.prUrl ?? ""}`,
       branch,
     ]),
   );
-  return [...keyed.values()];
+  return [...values.values()];
 }
 
-function mergeWorkItems(
-  current: Record<string, WorkItem>,
-  statuses?: Record<string, NodeStatus>,
-  report?: ExecutionReport,
-  branches?: RunBranch[],
-): Record<string, WorkItem> {
-  const next = { ...current };
-  for (const [id, status] of Object.entries(statuses ?? {})) {
-    const item = next[id];
-    if (item) next[id] = { ...item, status };
-  }
-  for (const result of report?.components ?? []) {
-    const item = next[result.id];
-    if (item) {
-      next[result.id] = {
-        ...item,
-        status: result.status === "done" ? "done" : "error",
-        summary: result.summary,
-        branches: mergeBranches(item.branches, branches),
-      };
-    }
-  }
-  return next;
+function savedDocument(
+  value: Pick<WorkflowDocument, "filename" | "artifactPath" | "content">,
+  agentId: string,
+  runId: string,
+): WorkflowDocument {
+  return {
+    ...value,
+    agentId,
+    runId,
+    updatedAt: new Date().toISOString(),
+  };
 }
 
 export function Board({ initialView }: { initialView: BoardView }) {
-  const [view, setViewState] = useState<View>(initialView);
-  const setView = useCallback((nextView: View) => {
-    setViewState(nextView);
-    window.history.replaceState(
-      null,
-      "",
-      boardViewHref(window.location.href, nextView),
-    );
-  }, []);
-  const [selected, setSelected] = useState<{
-    pane: "asIs" | "toBe";
-    id: string;
-  } | null>(null);
+  const [view, setViewState] = useState<BoardView>(initialView);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedFilename, setSelectedFilename] = useState("");
+  const [artifactsOpen, setArtifactsOpen] = useState(false);
   const [copied, setCopied] = useState(false);
-  const ingestedEvaluation = useRef("");
-  const others = useOthers();
+  const ingested = useRef("");
   const room = useRoom();
+  const others = useOthers();
   const updateMyPresence = useUpdateMyPresence();
 
   const envName = useStorage((root) => root.envName);
@@ -140,38 +104,65 @@ export function Board({ initialView }: { initialView: BoardView }) {
   const legacyBaseUrl = useStorage((root) => root.legacyBaseUrl ?? "");
   const targetBaseUrl = useStorage((root) => root.targetBaseUrl ?? "");
   const fixtureCommand = useStorage((root) => root.fixtureCommand ?? "");
-  const phase = useStorage((root) => root.phase);
-  const asIs = useStorage((root) => root.asIs);
-  const toBe = useStorage((root) => root.toBe);
-  const journeys = useStorage((root) => root.journeys ?? []);
+  const phase = useStorage((root) => root.phase ?? "research") as Phase;
+  const phaseStatuses =
+    (useStorage((root) => root.phaseStatuses) as PhaseStatuses | undefined) ??
+    defaultPhaseStatuses(phase);
+  const documents =
+    (useStorage((root) => root.documents) as Record<string, WorkflowDocument> | undefined) ??
+    NO_DOCUMENTS;
+  const researchReport =
+    (useStorage((root) => root.researchReport) as ResearchReport | null | undefined) ??
+    null;
+  const implementationPlan =
+    (useStorage((root) => root.implementationPlan) as
+      | ImplementationPlanReport
+      | null
+      | undefined) ?? null;
+  const implementationReport =
+    (useStorage((root) => root.implementationReport) as
+      | ImplementationReport
+      | null
+      | undefined) ?? null;
+  const blockers = useStorage((root) => root.blockers ?? []);
+  const asIs = useStorage((root) => root.asIs ?? EMPTY_GRAPH);
+  const toBe = useStorage((root) => root.toBe ?? EMPTY_GRAPH);
   const architectureVersion = useStorage((root) => root.architectureVersion ?? 0);
-  const executionSnapshot = useStorage((root) => root.executionSnapshot ?? null);
-  const analyzeAgentId = useStorage((root) => root.analyzeAgentId);
-  const analyzeRunId = useStorage((root) => root.analyzeRunId);
-  const executeAgentId = useStorage((root) => root.executeAgentId);
-  const executeRunId = useStorage((root) => root.executeRunId);
-  const evaluationAgentId = useStorage((root) => root.evaluationAgentId ?? "");
-  const evaluationRunId = useStorage((root) => root.evaluationRunId ?? "");
-  const activeComponentIds = useStorage((root) => root.activeComponentIds ?? []);
-  const nodeStatus = useStorage((root) => root.nodeStatus) as unknown as Record<
-    string,
-    NodeStatus
-  >;
-  const workItems = useStorage((root) => root.workItems ?? {}) as unknown as Record<
-    string,
-    WorkItem
-  >;
-  const executionReport = useStorage((root) => root.executionReport ?? null);
-  const evaluationReport = useStorage((root) => root.evaluationReport ?? null);
-  const evaluationVideos = useStorage((root) => root.evaluationVideos ?? []);
+  const researchAgentId = useStorage((root) => root.researchAgentId ?? "");
+  const researchRunId = useStorage((root) => root.researchRunId ?? "");
+  const planAgentId = useStorage((root) => root.planAgentId ?? "");
+  const planRunId = useStorage((root) => root.planRunId ?? "");
+  const implementAgentId = useStorage((root) => root.implementAgentId ?? "");
+  const implementRunId = useStorage((root) => root.implementRunId ?? "");
   const runBranches = useStorage((root) => root.runBranches ?? []);
-  const error = useStorage((root) => root.error);
+  const error = useStorage((root) => root.error ?? "");
 
   const patch = useMutation(({ storage }, values: Partial<BoardStorage>) => {
-    (Object.keys(values) as (keyof BoardStorage)[]).forEach((key) => {
+    for (const key of Object.keys(values) as (keyof BoardStorage)[]) {
       const value = values[key];
       if (value !== undefined) storage.set(key, value as never);
+    }
+  }, []);
+
+  const claimRun = useMutation(({ storage }, target: Phase) => {
+    const runId =
+      target === "research"
+        ? storage.get("researchRunId")
+        : target === "plan"
+          ? storage.get("planRunId")
+          : storage.get("implementRunId");
+    if (runId) return false;
+    if (target === "research") storage.set("researchRunId", "pending");
+    if (target === "plan") storage.set("planRunId", "pending");
+    if (target === "implement") storage.set("implementRunId", "pending");
+    storage.set("phase", target);
+    storage.set("phaseStatuses", {
+      ...(storage.get("phaseStatuses") ?? defaultPhaseStatuses(target)),
+      [target]: "running",
     });
+    storage.set("blockers", []);
+    storage.set("error", "");
+    return true;
   }, []);
 
   const moveNode = useMutation(
@@ -183,313 +174,244 @@ export function Board({ initialView }: { initialView: BoardView }) {
           node.id === id ? { ...node, x, y } : node,
         ),
       });
-      if (pane === "toBe") {
-        storage.set("executionSnapshot", null);
-        storage.set("phase", "aligning");
-      }
     },
     [],
   );
 
-  const claimAnalyze = useMutation(
-    ({ storage }, requestedPhase: "analyzing_current" | "analyzing_target") => {
-      if (storage.get("phase") !== requestedPhase || storage.get("analyzeRunId")) {
-        return false;
-      }
-      storage.set("analyzeRunId", "pending");
-      if (requestedPhase === "analyzing_current" && !storage.get("analyzeAgentId")) {
-        storage.set("analyzeAgentId", "pending");
-      }
-      storage.set("error", "");
-      return true;
-    },
-    [],
-  );
-
-  const claimExecute = useMutation(({ storage }, snapshot: MigrationSnapshot) => {
-    if (
-      storage.get("phase") !== "aligning" ||
-      storage.get("executeRunId")
-    ) {
-      return null;
-    }
-    const previousSnapshot = storage.get("executionSnapshot");
-    const previous =
-      previousSnapshot?.id === snapshot.id
-        ? ((storage.get("workItems") ?? {}) as Record<string, WorkItem>)
-        : {};
-    const componentIds = Object.keys(previous).length
-      ? Object.values(previous)
-          .filter((item) => item.status !== "done")
-          .map((item) => item.componentId)
-      : snapshot.toBe.nodes.map((node) => node.id);
-    if (!componentIds.length) return null;
-
-    const selected = new Set(componentIds);
-    const runSnapshot: MigrationSnapshot = {
-      ...snapshot,
-      toBe: {
-        ...snapshot.toBe,
-        nodes: snapshot.toBe.nodes.filter((node) => selected.has(node.id)),
-        edges: snapshot.toBe.edges.filter(
-          (edge) => selected.has(edge.from) && selected.has(edge.to),
-        ),
-      },
-    };
-
-    storage.set(
-      "workItems",
-      workItemsFromSnapshot(snapshot, previous, componentIds),
+  const setView = useCallback((next: BoardView) => {
+    setViewState(next);
+    setSelectedId(null);
+    window.history.replaceState(
+      null,
+      "",
+      boardViewHref(window.location.href, next),
     );
-    storage.set("phase", "executing");
-    storage.set("executionSnapshot", snapshot);
-    storage.set("executeAgentId", "pending");
-    storage.set("executeRunId", "pending");
-    storage.set("executionReport", null);
-    storage.set("evaluationReport", null);
-    storage.set("evaluationVideos", []);
-    storage.set("activeComponentIds", componentIds);
-    storage.set(
-      "nodeStatus",
-      Object.fromEntries(
-        snapshot.toBe.nodes.map((node) => [node.id, "pending" as const]),
-      ),
-    );
-    storage.set("runBranches", [{
-      repoUrl: storage.get("targetRepo") ?? "",
-      branch: snapshot.executionBranch,
-    }]);
-    storage.set("error", "");
-    return runSnapshot;
   }, []);
 
-  const attachExecutionRun = useMutation(
-    ({ storage }, agentId: string, runId: string) => {
-      const active = new Set(storage.get("activeComponentIds") ?? []);
-      const current = (storage.get("workItems") ?? {}) as Record<string, WorkItem>;
-      storage.set(
-        "workItems",
-        Object.fromEntries(
-          Object.entries(current).map(([id, item]) => [
-            id,
-            active.has(id) ? { ...item, agentId, runId } : item,
-          ]),
-        ),
-      );
-    },
-    [],
-  );
-
-  const applyExecutionPoll = useMutation(
-    ({ storage }, data: PollResponse) => {
-      const currentItems = (storage.get("workItems") ?? {}) as Record<
-        string,
-        WorkItem
-      >;
-      const currentBranches = (storage.get("runBranches") ?? []) as RunBranch[];
-      const nextItems = mergeWorkItems(
-        currentItems,
-        data.nodeStatus,
-        data.executionReport,
-        data.branches,
-      );
-
-      if (data.nodeStatus) storage.set("nodeStatus", data.nodeStatus);
-      storage.set("workItems", nextItems);
-      if (data.executionReport) {
-        storage.set("executionReport", data.executionReport);
-      }
-      if (data.evaluationReport) {
-        storage.set("evaluationReport", data.evaluationReport);
-      }
-      if (data.evaluationVideos) {
-        storage.set("evaluationVideos", data.evaluationVideos);
-      }
-      storage.set(
-        "runBranches",
-        mergeBranches(currentBranches, data.branches),
-      );
-      if (data.status === "running") storage.set("error", "");
-
-      return nextItems;
-    },
-    [],
-  );
-
-  const retireEvaluationPhase = useMutation(({ storage }) => {
-    const phase = storage.get("phase");
-    if (phase !== "evaluating" && phase !== "parity_failed") return;
-    storage.set("phase", "aligning");
-    storage.set("evaluationAgentId", "");
-    storage.set("evaluationRunId", "");
-    storage.set("error", "");
-  }, []);
-
-  const startAsIs = useCallback(async () => {
-    if (!legacyRepo || !claimAnalyze("analyzing_current")) return;
-    const resumeId = isCloudAgentId(analyzeAgentId) ? analyzeAgentId : undefined;
+  const startResearch = useCallback(async () => {
+    if (!legacyRepo || !claimRun("research")) return;
     try {
-      const response = await fetch("/api/analyze", {
+      const response = await fetch("/api/research", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          phase: "as-is",
           envName,
           legacyRepo,
           legacyRef,
-          targetRepo,
+          legacyBaseUrl,
           prompt,
-          agentId: resumeId,
-          requestKey: `${room.id}:as-is:${architectureVersion + 1}`,
+          requestKey: `${room.id}:research:${architectureVersion + 1}`,
         }),
       });
-      const data = (await response.json()) as AnalyzeResponse;
+      const data = (await response.json()) as StartResponse;
       if (!response.ok || !data.agentId || !data.runId) {
-        throw new Error(data.error || "Failed to start current-state analysis");
+        throw new Error(data.error || "Failed to start research");
       }
-      patch({ analyzeAgentId: data.agentId, analyzeRunId: data.runId });
+      patch({ researchAgentId: data.agentId, researchRunId: data.runId });
     } catch (caught) {
+      const message = caught instanceof Error ? caught.message : "Research failed";
       patch({
-        analyzeAgentId: resumeId ?? "",
-        analyzeRunId: "",
-        error: caught instanceof Error ? caught.message : "Analyze failed",
+        researchRunId: "",
+        phaseStatuses: { ...phaseStatuses, research: "blocked" },
+        blockers: [{ id: "research-start", phase: "research", message }],
+        error: message,
       });
     }
   }, [
-    analyzeAgentId,
     architectureVersion,
-    claimAnalyze,
+    claimRun,
     envName,
-    legacyRepo,
+    legacyBaseUrl,
     legacyRef,
+    legacyRepo,
     patch,
+    phaseStatuses,
     prompt,
     room.id,
-    targetRepo,
-  ]);
-
-  const startToBe = useCallback(async () => {
-    if (!isCloudAgentId(analyzeAgentId) || !claimAnalyze("analyzing_target")) return;
-    try {
-      const response = await fetch("/api/analyze", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          phase: "to-be",
-          envName,
-          legacyRepo,
-          legacyRef,
-          targetRepo,
-          prompt,
-          journeys,
-          agentId: analyzeAgentId,
-          requestKey: `${room.id}:to-be:${architectureVersion + 1}`,
-        }),
-      });
-      const data = (await response.json()) as AnalyzeResponse;
-      if (!response.ok || !data.agentId || !data.runId) {
-        throw new Error(data.error || "Failed to start target analysis");
-      }
-      patch({ analyzeAgentId: data.agentId, analyzeRunId: data.runId });
-    } catch (caught) {
-      patch({
-        analyzeRunId: "",
-        error: caught instanceof Error ? caught.message : "Target analysis failed",
-      });
-    }
-  }, [
-    analyzeAgentId,
-    architectureVersion,
-    claimAnalyze,
-    envName,
-    legacyRepo,
-    legacyRef,
-    journeys,
-    patch,
-    prompt,
-    room.id,
-    targetRepo,
   ]);
 
   useEffect(() => {
-    if (phase === "analyzing_current" && !analyzeRunId && legacyRepo && !error) {
-      void startAsIs();
-    }
     if (
-      phase === "analyzing_target" &&
-      !analyzeRunId &&
-      isCloudAgentId(analyzeAgentId) &&
+      phase === "research" &&
+      phaseStatuses.research === "running" &&
+      !researchRunId &&
+      !researchReport &&
       !error
     ) {
-      void startToBe();
+      void startResearch();
     }
   }, [
-    analyzeAgentId,
-    analyzeRunId,
     error,
-    legacyRepo,
     phase,
-    startAsIs,
-    startToBe,
+    phaseStatuses.research,
+    researchReport,
+    researchRunId,
+    startResearch,
+  ]);
+
+  const running = useMemo(() => {
+    if (
+      phaseStatuses.research === "running" &&
+      isCloudAgentId(researchAgentId) &&
+      researchRunId &&
+      researchRunId !== "pending"
+    ) {
+      return { kind: "research" as const, agentId: researchAgentId, runId: researchRunId };
+    }
+    if (
+      phaseStatuses.plan === "running" &&
+      isCloudAgentId(planAgentId) &&
+      planRunId &&
+      planRunId !== "pending"
+    ) {
+      return { kind: "plan" as const, agentId: planAgentId, runId: planRunId };
+    }
+    if (
+      phaseStatuses.implement === "running" &&
+      isCloudAgentId(implementAgentId) &&
+      implementRunId &&
+      implementRunId !== "pending"
+    ) {
+      return { kind: "implement" as const, agentId: implementAgentId, runId: implementRunId };
+    }
+    return null;
+  }, [
+    implementAgentId,
+    implementRunId,
+    phaseStatuses,
+    planAgentId,
+    planRunId,
+    researchAgentId,
+    researchRunId,
   ]);
 
   useEffect(() => {
-    if (
-      !isCloudAgentId(analyzeAgentId) ||
-      !analyzeRunId ||
-      analyzeRunId === "pending" ||
-      (phase !== "analyzing_current" && phase !== "analyzing_target")
-    ) {
-      return;
-    }
+    if (!running) return;
     let cancelled = false;
     let inFlight = false;
-
     async function poll() {
       if (inFlight) return;
       inFlight = true;
       try {
-        const response = await fetch(
-          `/api/agents/${analyzeAgentId}?kind=analyze&runId=${encodeURIComponent(analyzeRunId)}`,
-        );
+        const response = await fetch(`/api/agents/${running!.agentId}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            runId: running!.runId,
+            kind: running!.kind,
+            research: researchReport,
+            plan: implementationPlan,
+          }),
+        });
         const data = (await response.json()) as PollResponse;
         if (cancelled) return;
-        if (!response.ok || data.status === "error" || data.status === "cancelled") {
-          patch({ error: data.error || "Analysis failed" });
-          return;
-        }
         if (data.status === "running") {
-          patch({ error: "" });
+          if (running!.kind === "implement" && data.nodeStatus && implementationPlan) {
+            patch({
+              implementationPlan: withStepProgress(
+                implementationPlan,
+                data.nodeStatus,
+              ),
+              error: "",
+            });
+          }
           return;
         }
-        if (!data.graph) {
-          patch({ error: "No architecture JSON from agent" });
-          return;
-        }
-        if (phase === "analyzing_current") {
+        if (!response.ok || data.status === "error" || data.error) {
+          const message = data.error || `${running!.kind} failed`;
+          const keepFinishedRun =
+            (running!.kind === "research" || running!.kind === "plan") &&
+            /without a valid report/i.test(message);
           patch({
-            asIs: data.graph,
-            journeys: data.journeys?.length ? data.journeys : journeys,
-            architectureVersion: architectureVersion + 1,
-            phase: "analyzing_target",
-            analyzeRunId: "",
-            error: "",
+            phaseStatuses: {
+              ...phaseStatuses,
+              [running!.kind]: "blocked",
+            },
+            blockers: [{
+              id: `${running!.kind}-run`,
+              phase: running!.kind,
+              message,
+              resolution: "Retry the phase after resolving the reported issue.",
+            }],
+            error: message,
+            runBranches: mergeBranches(runBranches, data.branches),
+            ...(running!.kind === "research" && !keepFinishedRun
+              ? { researchRunId: "" }
+              : {}),
+            ...(running!.kind === "plan" && !keepFinishedRun
+              ? { planRunId: "" }
+              : {}),
+            ...(running!.kind === "implement" ? { implementRunId: "" } : {}),
           });
-        } else {
-          const targetJourneys = reconcileJourneyComponents(
-            asIs,
-            data.graph,
-            data.journeys?.length ? data.journeys : journeys,
+          return;
+        }
+        if (running!.kind === "research" && data.researchResult) {
+          const document = savedDocument(
+            data.researchResult.document,
+            running!.agentId,
+            running!.runId,
           );
           patch({
-            toBe: data.graph,
-            journeys: targetJourneys,
+            asIs: data.researchResult.graph,
+            researchReport: data.researchResult.report,
+            documents: { ...documents, [document.filename]: document },
+            phaseStatuses: { ...phaseStatuses, research: "ready" },
             architectureVersion: architectureVersion + 1,
-            phase: "aligning",
-            analyzeRunId: "",
-            executionSnapshot: null,
             error: "",
           });
+          setSelectedFilename(document.filename);
+        } else if (running!.kind === "plan" && data.planResult) {
+          const document = savedDocument(
+            data.planResult.document,
+            running!.agentId,
+            running!.runId,
+          );
+          patch({
+            toBe: data.planResult.graph,
+            implementationPlan: data.planResult.report,
+            documents: { ...documents, [document.filename]: document },
+            phaseStatuses: { ...phaseStatuses, plan: "ready" },
+            architectureVersion: architectureVersion + 1,
+            error: "",
+          });
+          setSelectedFilename(document.filename);
+        } else if (running!.kind === "implement" && data.implementationResult) {
+          const nextDocuments = { ...documents };
+          for (const item of data.implementationResult.documents) {
+            const document = savedDocument(item, running!.agentId, running!.runId);
+            nextDocuments[document.filename] = document;
+          }
+          const nextPlan = implementationPlan
+            ? withTerminalSteps(implementationPlan, data.implementationResult.steps)
+            : null;
+          const passed = data.implementationResult.report.status === "passed";
+          patch({
+            implementationPlan: nextPlan,
+            implementationReport: data.implementationResult.report,
+            documents: nextDocuments,
+            phaseStatuses: {
+              ...phaseStatuses,
+              implement: passed ? "complete" : "blocked",
+            },
+            blockers: passed
+              ? []
+              : [{
+                  id: "verification",
+                  phase: "implement",
+                  message: "Modern application verification did not pass every gate.",
+                }],
+            evaluationVideos: data.implementationResult.report.recording
+              ? [data.implementationResult.report.recording]
+              : [],
+            runBranches: mergeBranches(runBranches, data.branches),
+            error: passed ? "" : "Modern verification is incomplete",
+          });
+          setSelectedFilename(
+            nextDocuments["verification-report.md"]
+              ? "verification-report.md"
+              : "implementation-summary.md",
+          );
+          setView("implement");
         }
       } catch (caught) {
         if (!cancelled) {
@@ -499,131 +421,30 @@ export function Board({ initialView }: { initialView: BoardView }) {
         inFlight = false;
       }
     }
-
     void poll();
-    const interval = window.setInterval(() => void poll(), 4000);
+    const timer = window.setInterval(() => void poll(), 5000);
     return () => {
       cancelled = true;
-      window.clearInterval(interval);
+      window.clearInterval(timer);
     };
   }, [
-    analyzeAgentId,
-    analyzeRunId,
     architectureVersion,
-    asIs,
-    journeys,
+    documents,
+    implementationPlan,
     patch,
-    phase,
+    phaseStatuses,
+    researchReport,
+    runBranches,
+    running,
+    setView,
   ]);
-
-  useEffect(() => {
-    if (
-      phase !== "executing" ||
-      !isCloudAgentId(executeAgentId) ||
-      !executeRunId ||
-      executeRunId === "pending"
-    ) {
-      return;
-    }
-    let cancelled = false;
-    let inFlight = false;
-    const active = new Set(activeComponentIds);
-    const components = executionSnapshot?.toBe.nodes
-      .filter((node) => active.has(node.id))
-      .map((node) => `${node.id}|${node.label}`)
-      .join(",") ?? "";
-
-    async function poll() {
-      if (inFlight) return;
-      inFlight = true;
-      try {
-        const response = await fetch(
-          `/api/agents/${executeAgentId}?kind=execute&runId=${encodeURIComponent(executeRunId)}&components=${encodeURIComponent(components)}`,
-        );
-        const data = (await response.json()) as PollResponse;
-        if (cancelled) return;
-        if (response.status === 429) {
-          patch({
-            error: data.error || "Cloud status is rate limited; retrying shortly",
-          });
-          return;
-        }
-        const nextItems = applyExecutionPoll(data);
-        if (data.status === "running") {
-          return;
-        }
-        if (
-          !response.ok ||
-          data.status === "error" ||
-          data.status === "cancelled" ||
-          data.executionReport?.status !== "passed" ||
-          data.evaluationReport?.status !== "passed"
-        ) {
-          patch({
-            phase: "aligning",
-            executeRunId: "",
-            error: data.error || "The goal was not achieved",
-          });
-          return;
-        }
-        const allDone = Object.values(nextItems).every(
-          (item) => item.status === "done",
-        );
-        if (!allDone) {
-          patch({
-            phase: "aligning",
-            executeRunId: "",
-            error: "Some components still need an execution attempt",
-          });
-          return;
-        }
-        patch({
-          phase: "done",
-          error: "",
-        });
-        setView("evidence");
-      } catch (caught) {
-        if (!cancelled) {
-          patch({ error: caught instanceof Error ? caught.message : "Poll failed" });
-        }
-      } finally {
-        inFlight = false;
-      }
-    }
-
-    void poll();
-    const interval = window.setInterval(() => void poll(), 10_000);
-    return () => {
-      cancelled = true;
-      window.clearInterval(interval);
-    };
-  }, [
-    applyExecutionPoll,
-    executionSnapshot,
-    activeComponentIds,
-    executeAgentId,
-    executeRunId,
-    patch,
-    phase,
-  ]);
-
-  useEffect(() => {
-    if (phase === "evaluating" || phase === "parity_failed") {
-      retireEvaluationPhase();
-    }
-  }, [phase, retireEvaluationPhase]);
 
   useEffect(() => {
     if (!legacyRepo) return;
-    const evidenceRunId = executeRunId;
     const shouldIngest =
-      phase === "done" &&
-      Boolean(evaluationReport || evaluationVideos.length) &&
-      ingestedEvaluation.current !== evidenceRunId;
-    const ingestArtifacts =
-      shouldIngest &&
-      Boolean(evidenceRunId) &&
-      evidenceRunId !== "pending";
+      phaseStatuses.implement === "complete" &&
+      implementRunId &&
+      ingested.current !== implementRunId;
     const timer = window.setTimeout(() => {
       void persistBoardArchiveClient(
         room.id,
@@ -638,86 +459,82 @@ export function Board({ initialView }: { initialView: BoardView }) {
           targetBaseUrl,
           fixtureCommand,
           phase,
+          phaseStatuses,
+          documents,
+          researchReport,
+          implementationPlan,
+          implementationReport,
+          blockers,
+          researchAgentId,
+          researchRunId,
+          planAgentId,
+          planRunId,
+          implementAgentId,
+          implementRunId,
           asIs,
           toBe,
-          journeys,
           architectureVersion,
-          executionSnapshot,
-          analyzeAgentId,
-          analyzeRunId,
-          executeAgentId,
-          executeRunId,
-          evaluationAgentId,
-          evaluationRunId,
-          workItems,
-          executionReport,
-          evaluationReport,
-          evaluationVideos,
+          evaluationVideos: implementationReport?.recording
+            ? [implementationReport.recording]
+            : [],
           runBranches,
           error,
         },
-        { ingestArtifacts },
-      ).then(() => {
-        if (ingestArtifacts) ingestedEvaluation.current = evidenceRunId;
-      });
+        { ingestArtifacts: Boolean(shouldIngest) },
+      )
+        .then(() => {
+          if (shouldIngest) ingested.current = implementRunId;
+        })
+        .catch((caught) => {
+          patch({
+            error:
+              caught instanceof Error
+                ? caught.message
+                : "Failed to persist workflow artifacts",
+          });
+        });
     }, 500);
     return () => window.clearTimeout(timer);
   }, [
-    analyzeAgentId,
-    analyzeRunId,
     architectureVersion,
     asIs,
+    blockers,
+    documents,
     envName,
     error,
-    evaluationAgentId,
-    evaluationReport,
-    evaluationRunId,
-    evaluationVideos,
-    executeAgentId,
-    executeRunId,
-    executionReport,
-    executionSnapshot,
     fixtureCommand,
-    journeys,
+    implementAgentId,
+    implementRunId,
+    implementationPlan,
+    implementationReport,
     legacyBaseUrl,
     legacyRef,
     legacyRepo,
+    patch,
     phase,
+    phaseStatuses,
+    planAgentId,
+    planRunId,
     prompt,
+    researchAgentId,
+    researchReport,
+    researchRunId,
     room.id,
     runBranches,
     targetBaseUrl,
     targetRef,
     targetRepo,
     toBe,
-    workItems,
   ]);
 
-  async function execute() {
-    const reconciledJourneys = reconcileJourneyComponents(asIs, toBe, journeys);
-    const alignmentErrors = validateAlignment(toBe, reconciledJourneys);
-    if (alignmentErrors.length) {
-      patch({
-        journeys: reconciledJourneys,
-        error: alignmentErrors.slice(0, 3).join(" · "),
-      });
+  async function createPlan() {
+    const researchDocument = documents["research-plan.md"];
+    if (!canCreatePlan(researchReport, researchDocument?.content) || !claimRun("plan")) {
       return;
     }
-
-    const snapshot = createMigrationSnapshot({
-      asIs,
-      toBe,
-      journeys: reconciledJourneys,
-      architectureVersion,
-    });
-    const attempt =
-      Math.max(0, ...Object.values(workItems).map((item) => item.attempts)) + 1;
-    patch({ journeys: reconciledJourneys, error: "" });
-    const runSnapshot = claimExecute(snapshot);
-    if (!runSnapshot) return;
-
+    setView("plan");
     try {
-      const response = await fetch("/api/execute", {
+      const response = await fetch("/api/plan", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -727,232 +544,396 @@ export function Board({ initialView }: { initialView: BoardView }) {
           targetRepo,
           targetRef,
           prompt,
-          snapshot: runSnapshot,
-          legacyBaseUrl,
-          targetBaseUrl,
-          fixtureCommand,
-          requestKey: `${room.id}:execute:${runSnapshot.id}:${attempt}`,
+          research: researchReport,
+          researchDocument: researchDocument.content,
+          requestKey: `${room.id}:plan:${architectureVersion + 1}`,
         }),
       });
-      const data = (await response.json()) as AnalyzeResponse;
+      const data = (await response.json()) as StartResponse;
       if (!response.ok || !data.agentId || !data.runId) {
-        throw new Error(data.error || "Failed to start execution");
+        throw new Error(data.error || "Failed to start planning");
       }
-      patch({ executeAgentId: data.agentId, executeRunId: data.runId });
-      attachExecutionRun(data.agentId, data.runId);
-      setView("evidence");
-    } catch (caught) {
       patch({
-        phase: "aligning",
-        executeAgentId: "",
-        executeRunId: "",
-        error: caught instanceof Error ? caught.message : "Execute failed",
+        phase: "plan",
+        researchRunId,
+        planAgentId: data.agentId,
+        planRunId: data.runId,
+        phaseStatuses: {
+          ...phaseStatuses,
+          research: "complete",
+          plan: "running",
+        },
+      });
+    } catch (caught) {
+      const message = caught instanceof Error ? caught.message : "Planning failed";
+      patch({
+        planRunId: "",
+        phaseStatuses: { ...phaseStatuses, research: "complete", plan: "blocked" },
+        blockers: [{ id: "plan-start", phase: "plan", message }],
+        error: message,
       });
     }
   }
 
-  function retryAnalysis() {
-    patch({
-      analyzeRunId: "",
-      analyzeAgentId:
-        phase === "analyzing_target" && isCloudAgentId(analyzeAgentId)
-          ? analyzeAgentId
-          : "",
-      error: "",
-    });
-  }
-
-  function regenerate() {
+  async function approveAndImplement() {
+    const planDocument = documents["implementation-plan.md"];
     if (
-      phase === "analyzing_current" ||
-      phase === "analyzing_target" ||
-      phase === "executing"
+      !canApprovePlan(
+        implementationPlan,
+        researchReport,
+        planDocument?.content,
+      ) ||
+      !researchReport ||
+      !implementationPlan ||
+      !claimRun("implement")
     ) {
       return;
     }
+    const snapshot = createMigrationSnapshot({
+      asIs,
+      toBe,
+      journeys: [],
+      architectureVersion,
+    });
+    setView("implement");
+    try {
+      const response = await fetch("/api/implement", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          envName,
+          legacyRepo,
+          legacyRef,
+          targetRepo,
+          targetRef,
+          targetBaseUrl,
+          fixtureCommand,
+          prompt,
+          research: researchReport,
+          plan: implementationPlan,
+          planDocument: planDocument.content,
+          snapshot,
+          requestKey: `${room.id}:implement:${snapshot.id}`,
+        }),
+      });
+      const data = (await response.json()) as StartResponse;
+      if (!response.ok || !data.agentId || !data.runId) {
+        throw new Error(data.error || "Failed to start implementation");
+      }
+      patch({
+        phase: "implement",
+        executionSnapshot: snapshot,
+        implementAgentId: data.agentId,
+        implementRunId: data.runId,
+        executeAgentId: data.agentId,
+        executeRunId: data.runId,
+        phaseStatuses: {
+          ...phaseStatuses,
+          research: "complete",
+          plan: "complete",
+          implement: "running",
+        },
+      });
+    } catch (caught) {
+      const message =
+        caught instanceof Error ? caught.message : "Implementation failed";
+      patch({
+        implementRunId: "",
+        phaseStatuses: {
+          ...phaseStatuses,
+          research: "complete",
+          plan: "complete",
+          implement: "blocked",
+        },
+        blockers: [{ id: "implement-start", phase: "implement", message }],
+        error: message,
+      });
+    }
+  }
+
+  function retryCurrent() {
+    const reuseResearch = phase === "research" && isCloudAgentId(researchAgentId);
+    const reusePlan = phase === "plan" && isCloudAgentId(planAgentId);
     patch({
-      phase: "analyzing_current",
+      error: "",
+      blockers: [],
+      phaseStatuses: { ...phaseStatuses, [phase]: "running" },
+      ...(phase === "research" && !reuseResearch
+        ? { researchRunId: "", researchAgentId: "" }
+        : {}),
+      ...(phase === "research" && reuseResearch && !researchRunId
+        ? { researchRunId: RECOVER_RUN_ID }
+        : {}),
+      ...(phase === "plan" && !reusePlan
+        ? { planRunId: "", planAgentId: "" }
+        : {}),
+      ...(phase === "plan" && reusePlan && !planRunId
+        ? { planRunId: RECOVER_RUN_ID }
+        : {}),
+      ...(phase === "implement" ? { implementRunId: "", implementAgentId: "" } : {}),
+    });
+    if (phase === "plan" && !reusePlan) void createPlan();
+    if (phase === "implement") void approveAndImplement();
+  }
+
+  function restartResearch() {
+    if (!window.confirm("Restart research and clear the current plan and implementation?")) {
+      return;
+    }
+    patch({
+      phase: "research",
+      phaseStatuses: defaultPhaseStatuses("research"),
+      documents: {},
+      researchReport: null,
+      implementationPlan: null,
+      implementationReport: null,
+      blockers: [],
+      researchAgentId: "",
+      researchRunId: "",
+      planAgentId: "",
+      planRunId: "",
+      implementAgentId: "",
+      implementRunId: "",
       asIs: EMPTY_GRAPH,
       toBe: EMPTY_GRAPH,
-      journeys: [],
-      executionSnapshot: null,
-      analyzeAgentId: "",
-      analyzeRunId: "",
-      executeAgentId: "",
-      executeRunId: "",
-      evaluationAgentId: "",
-      evaluationRunId: "",
-      activeComponentIds: [],
-      nodeStatus: {},
-      workItems: {},
-      executionReport: null,
-      evaluationReport: null,
       evaluationVideos: [],
       runBranches: [],
       error: "",
     });
-    setView("architecture");
+    setSelectedFilename("");
+    setView("research");
   }
 
-  async function copyLink() {
-    await navigator.clipboard.writeText(window.location.href);
-    setCopied(true);
-    window.setTimeout(() => setCopied(false), 1200);
-  }
+  const displayedView = phaseStatuses[view] === "pending" ? phase : view;
+  const preferredFilename =
+    displayedView === "research"
+      ? "research-plan.md"
+      : displayedView === "plan"
+        ? "implementation-plan.md"
+        : documents["verification-report.md"]
+          ? "verification-report.md"
+          : "implementation-summary.md";
+  const displayedFilename = documents[selectedFilename]
+    ? selectedFilename
+    : documents[preferredFilename]
+      ? preferredFilename
+      : "";
+  const graph = displayedView === "research" ? asIs : toBe;
+  const nodeStatus = componentStatuses(toBe, implementationPlan);
+  const primaryAction =
+    phaseStatuses[displayedView] === "blocked" ? (
+      <ActionButton onClick={retryCurrent}>Retry {displayedView}</ActionButton>
+    ) : displayedView === "research" && phaseStatuses.research === "ready" ? (
+      <ActionButton onClick={() => void createPlan()}>
+        Create implementation plan
+      </ActionButton>
+    ) : displayedView === "plan" && phaseStatuses.plan === "ready" ? (
+      <ActionButton onClick={() => void approveAndImplement()}>
+        Approve and implement
+      </ActionButton>
+    ) : displayedView === "implement" && phaseStatuses.implement === "complete" ? (
+      <ActionButton onClick={() => setSelectedFilename("verification-report.md")}>
+        Review implementation
+      </ActionButton>
+    ) : null;
 
-  const busy =
-    phase === "analyzing_current" ||
-    phase === "analyzing_target" ||
-    phase === "executing";
-  const locked = busy || phase === "done";
+  function artifactUrl(path: string): string | null {
+    const document = Object.values(documents).find(
+      (item) => item.artifactPath === path,
+    );
+    const agentId = document?.agentId || implementAgentId;
+    return isCloudAgentId(agentId)
+      ? `/api/agents/${agentId}/artifacts?path=${encodeURIComponent(path)}`
+      : null;
+  }
 
   return (
-    <div className="flex h-full min-h-0 flex-col bg-paper">
+    <div className="relative flex h-full min-h-0 flex-col bg-paper">
       <BoardChrome
-        view={view}
+        view={displayedView}
         onViewChange={setView}
+        phaseStatuses={phaseStatuses}
+        primaryAction={primaryAction}
         status={
-          <div className="flex max-w-md items-center gap-2">
-            {error ? (
-              <p title={error} className="truncate text-[12px] text-bad">
-                {error}
-              </p>
-            ) : others.length > 0 ? (
-              <p className="text-[12px] text-muted">{others.length + 1} here</p>
-            ) : phase === "analyzing_current" || phase === "analyzing_target" ? (
-              <ThinkingStatus
-                stages={
-                  phase === "analyzing_current"
-                    ? CURRENT_ANALYZE_STAGES
-                    : TARGET_ANALYZE_STAGES
-                }
-              />
-            ) : (
-              <p className="hidden text-[12px] text-muted lg:block">{PHASE_LABEL[phase]}</p>
-            )}
-            {error && (phase === "analyzing_current" || phase === "analyzing_target") ? (
-              <button type="button" onClick={retryAnalysis} className="shrink-0 text-[12px] text-accent">
-                Retry
-              </button>
-            ) : null}
-          </div>
-        }
-        primaryAction={
-          phase === "aligning" ? (
-            <button
-              type="button"
-              onClick={() => void execute()}
-              className="inline-flex items-center gap-2 rounded-md bg-cta px-3.5 py-2 text-[13px] font-medium text-white transition-colors hover:bg-ink"
-            >
-              Execute plan <span aria-hidden>→</span>
-            </button>
-          ) : null
+          <p className="hidden max-w-64 truncate text-[11px] text-muted md:block">
+            {error ||
+              (others.length
+                ? `${others.length + 1} collaborators`
+                : nextAction(phaseStatuses))}
+          </p>
         }
         overflow={
           <>
-            <BoardOverflowItem onClick={regenerate} disabled={!legacyRepo || busy}>
-              Regenerate
+            <BoardOverflowItem onClick={() => setArtifactsOpen(true)}>
+              Saved artifacts
             </BoardOverflowItem>
-            <BoardOverflowItem onClick={() => void copyLink()}>
+            <BoardOverflowItem
+              onClick={() => {
+                void navigator.clipboard.writeText(window.location.href);
+                setCopied(true);
+                window.setTimeout(() => setCopied(false), 1200);
+              }}
+            >
               {copied ? "Copied" : "Copy link"}
             </BoardOverflowItem>
-            <BoardOverflowItem href={`/p/${room.id}`}>
-              Open saved view
-            </BoardOverflowItem>
-            {analyzeAgentId ? (
+            <BoardOverflowItem href={`/p/${room.id}`}>Open saved view</BoardOverflowItem>
+            <BoardOverflowItem onClick={restartResearch}>Restart research</BoardOverflowItem>
+            {researchAgentId ? (
               <div className="border-t border-line px-3 py-2">
-                <AgentIdLink label="Analyze" id={analyzeAgentId} />
+                <AgentIdLink label="Research" id={researchAgentId} />
               </div>
             ) : null}
-            {executeAgentId ? (
+            {planAgentId ? (
               <div className="border-t border-line px-3 py-2">
-                <AgentIdLink label="Execute" id={executeAgentId} />
+                <AgentIdLink label="Plan" id={planAgentId} />
+              </div>
+            ) : null}
+            {implementAgentId ? (
+              <div className="border-t border-line px-3 py-2">
+                <AgentIdLink label="Implement" id={implementAgentId} />
               </div>
             ) : null}
           </>
         }
       />
 
-      {!legacyRepo ? (
-        <p className="px-4 py-10 text-sm text-muted">
-          This board is empty or was not initialized. Start from the home page.
-        </p>
-      ) : view === "evidence" ? (
-        <EvidencePanel
-          workItems={workItems}
-          report={evaluationReport}
-          videos={evaluationVideos}
-          evaluationAgentId={executeAgentId}
-          branches={runBranches}
-          journeys={journeys}
+      <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
+        <ArchitecturePane
+          pane={displayedView === "research" ? "asIs" : "toBe"}
+          title={displayedView === "research" ? "Legacy component diagram" : "Target component diagram"}
+          subtitle={
+            displayedView === "research"
+              ? "Select a component to inspect responsibilities and findings"
+              : displayedView === "plan"
+                ? "Components are linked to approved implementation steps"
+                : "Status reflects implementation progress"
+          }
+          graph={graph}
+          selectable
+          selectedId={selectedId}
+          nodeStatus={displayedView === "implement" ? nodeStatus : {}}
+          collab
+          loading={phaseStatuses[displayedView] === "running" && graph.nodes.length === 0}
+          stages={
+            displayedView === "research"
+              ? ["Inspecting the legacy repository", "Using the legacy UI", "Writing research-plan.md"]
+              : displayedView === "plan"
+                ? ["Designing target architecture", "Breaking work into steps", "Writing implementation-plan.md"]
+                : ["Implementing approved steps", "Verifying the modern UI", "Saving the recording"]
+          }
+          onSelect={setSelectedId}
+          onMove={(id, x, y) =>
+            moveNode(displayedView === "research" ? "asIs" : "toBe", id, x, y)
+          }
+          onCursor={(cursor) => updateMyPresence({ cursor })}
         />
-      ) : view === "cursor" ? (
-        <CursorBriefPanel
-          prompt={prompt}
-          envName={envName}
-          legacyRepo={legacyRepo}
-          targetRepo={targetRepo}
-          chats={[
-            {
-              label: "Analyze",
-              detail: "Maps current and target architecture from the idea.",
-              id: analyzeAgentId,
-            },
-            {
-              label: "Execute",
-              detail: "Implements the frozen specs and keeps going until the user-visible goal holds.",
-              id: executeAgentId,
-            },
-          ]}
+        <WorkflowDocumentPanel
+          phase={displayedView}
+          documents={documents}
+          selectedFilename={displayedFilename}
+          onSelectDocument={setSelectedFilename}
+          selectedComponentId={selectedId}
+          graph={graph}
+          research={researchReport}
+          plan={implementationPlan}
+          implementation={implementationReport}
+          blockers={blockers.filter((blocker) => blocker.phase === displayedView)}
+          artifactUrl={artifactUrl}
         />
-      ) : (
-        <div className="flex min-h-0 flex-1">
-          <ArchitecturePane
-            pane="asIs"
-            title="Current"
-            subtitle="Existing architecture (as-is)"
-            graph={asIs}
-            selectable
-            selectedId={selected?.pane === "asIs" ? selected.id : null}
-            nodeStatus={{}}
-            collab
-            loading={phase === "analyzing_current" && asIs.nodes.length === 0}
-            stages={CURRENT_ANALYZE_STAGES}
-            onSelect={(id) => setSelected(id ? { pane: "asIs", id } : null)}
-            onMove={(id, x, y) => moveNode("asIs", id, x, y)}
-            onCursor={(cursor) => updateMyPresence({ cursor })}
-          />
-          <div className="w-px bg-line" />
-          <ArchitecturePane
-            pane="toBe"
-            title="Target"
-            subtitle="Proposed architecture (to-be)"
-            graph={toBe}
-            selectable
-            selectedId={selected?.pane === "toBe" ? selected.id : null}
-            nodeStatus={asNodeStatus(nodeStatus)}
-            collab
-            loading={
-              (phase === "analyzing_current" || phase === "analyzing_target") &&
-              toBe.nodes.length === 0
-            }
-            stages={
-              phase === "analyzing_target"
-                ? TARGET_ANALYZE_STAGES
-                : TARGET_WAITING_STAGES
-            }
-            onSelect={(id) => setSelected(id ? { pane: "toBe", id } : null)}
-            onMove={(id, x, y) => moveNode("toBe", id, x, y)}
-            onCursor={(cursor) => updateMyPresence({ cursor })}
-          />
-          <SpecInspector
-            pane={selected?.pane ?? "toBe"}
-            selectedId={selected?.id ?? null}
-            locked={locked}
-            onClose={() => setSelected(null)}
-          />
-        </div>
-      )}
+      </div>
+
+      <ArtifactDrawer
+        open={artifactsOpen}
+        onClose={() => setArtifactsOpen(false)}
+        documents={documents}
+        implementation={implementationReport}
+        branches={runBranches}
+        urlFor={artifactUrl}
+      />
     </div>
   );
+}
+
+function ActionButton({
+  children,
+  onClick,
+}: {
+  children: React.ReactNode;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="inline-flex items-center gap-2 rounded-md bg-cta px-3.5 py-2 text-[12px] font-medium text-white transition-colors hover:bg-ink"
+    >
+      {children} <span aria-hidden>→</span>
+    </button>
+  );
+}
+
+function withStepProgress(
+  plan: ImplementationPlanReport,
+  statuses: Record<string, NodeStatus>,
+): ImplementationPlanReport {
+  return {
+    ...plan,
+    phases: plan.phases.map((phase) => ({
+      ...phase,
+      steps: phase.steps.map((step) => ({
+        ...step,
+        status: statuses[step.id] ?? step.status,
+      })),
+    })),
+  };
+}
+
+function withTerminalSteps(
+  plan: ImplementationPlanReport,
+  results: { id: string; status: "done" | "error"; summary: string }[],
+): ImplementationPlanReport {
+  const byId = new Map(results.map((item) => [item.id, item]));
+  return {
+    ...plan,
+    phases: plan.phases.map((phase) => ({
+      ...phase,
+      steps: phase.steps.map((step) => {
+        const result = byId.get(step.id);
+        return result
+          ? { ...step, status: result.status, summary: result.summary }
+          : { ...step, status: "error" };
+      }),
+    })),
+  };
+}
+
+function componentStatuses(
+  graph: Graph,
+  plan: ImplementationPlanReport | null,
+): Record<string, NodeStatus> {
+  if (!plan) return {};
+  const steps = plan.phases.flatMap((phase) => phase.steps);
+  return Object.fromEntries(
+    graph.nodes.map((node) => {
+      const related = steps.filter((step) => step.componentIds.includes(node.id));
+      const status: NodeStatus = related.some((step) => step.status === "error")
+        ? "error"
+        : related.some((step) => step.status === "running")
+          ? "running"
+          : related.length && related.every((step) => step.status === "done")
+            ? "done"
+            : "pending";
+      return [node.id, status];
+    }),
+  );
+}
+
+function nextAction(statuses: PhaseStatuses) {
+  if (statuses.research === "running") return "Researching the legacy application";
+  if (statuses.research === "ready") return "Next: create implementation plan";
+  if (statuses.plan === "running") return "Creating implementation plan";
+  if (statuses.plan === "ready") return "Next: approve and implement";
+  if (statuses.implement === "running") return "Implementing and verifying";
+  if (statuses.implement === "complete") return "Verification passed";
+  return "Action required";
 }

@@ -12,7 +12,8 @@ import {
   sanitizeArtifactPath,
   summarizeArchive,
 } from "@/lib/archive/types";
-import { EMPTY_GRAPH, type Phase } from "@/lib/types";
+import { EMPTY_GRAPH } from "@/lib/types";
+import { defaultPhaseStatuses, legacyPhase } from "@/lib/workflow";
 
 let schemaPromise: Promise<void> | null = null;
 
@@ -82,6 +83,10 @@ async function ensureSchema(): Promise<void> {
           UNIQUE (refactor_id, source_path)
         )
       `;
+      await sql`
+        ALTER TABLE refactors
+        ADD COLUMN IF NOT EXISTS workflow_state JSONB NOT NULL DEFAULT '{}'::jsonb
+      `;
     })().catch((error) => {
       schemaPromise = null;
       throw error;
@@ -98,6 +103,8 @@ function rowToArchive(
   row: Record<string, unknown>,
   artifacts: ArchiveArtifact[],
 ): RefactorArchive {
+  const workflow = asJson<Record<string, unknown>>(row.workflow_state, {});
+  const phase = legacyPhase(workflow.phase ?? row.phase);
   return {
     id: String(row.id),
     createdAt: new Date(String(row.created_at)).toISOString(),
@@ -111,7 +118,30 @@ function rowToArchive(
     legacyBaseUrl: String(row.legacy_base_url ?? ""),
     targetBaseUrl: String(row.target_base_url ?? ""),
     fixtureCommand: String(row.fixture_command ?? ""),
-    phase: (row.phase as Phase) ?? "analyzing_current",
+    phase,
+    phaseStatuses:
+      (workflow.phaseStatuses as RefactorArchive["phaseStatuses"]) ??
+      defaultPhaseStatuses(phase),
+    documents:
+      (workflow.documents as RefactorArchive["documents"]) ?? {},
+    researchReport:
+      (workflow.researchReport as RefactorArchive["researchReport"]) ?? null,
+    implementationPlan:
+      (workflow.implementationPlan as RefactorArchive["implementationPlan"]) ?? null,
+    implementationReport:
+      (workflow.implementationReport as RefactorArchive["implementationReport"]) ?? null,
+    blockers:
+      (workflow.blockers as RefactorArchive["blockers"]) ?? [],
+    researchAgentId:
+      String(workflow.researchAgentId ?? row.analyze_agent_id ?? ""),
+    researchRunId:
+      String(workflow.researchRunId ?? row.analyze_run_id ?? ""),
+    planAgentId: String(workflow.planAgentId ?? ""),
+    planRunId: String(workflow.planRunId ?? ""),
+    implementAgentId:
+      String(workflow.implementAgentId ?? row.execute_agent_id ?? ""),
+    implementRunId:
+      String(workflow.implementRunId ?? row.execute_run_id ?? ""),
     asIs: asJson(row.as_is, EMPTY_GRAPH),
     toBe: asJson(row.to_be, EMPTY_GRAPH),
     journeys: asJson(row.journeys, []),
@@ -168,7 +198,7 @@ export function createNeonArchiveStore(): ArchiveStore {
       const rows = (await sql`
         SELECT
           id, env_name, legacy_repo, target_repo, prompt, phase,
-          created_at, updated_at, evaluation_report
+          created_at, updated_at, evaluation_report, workflow_state
         FROM refactors
         ORDER BY updated_at DESC
       `) as Record<string, unknown>[];
@@ -218,7 +248,7 @@ export function createNeonArchiveStore(): ArchiveStore {
           as_is, to_be, journeys, execution_snapshot, analyze_agent_id, analyze_run_id,
           execute_agent_id, execute_run_id, evaluation_agent_id, evaluation_run_id,
           work_items, execution_report, evaluation_report, evaluation_videos, run_branches,
-          error, created_at, updated_at
+          error, workflow_state, created_at, updated_at
         ) VALUES (
           ${input.id}, ${input.envName}, ${input.legacyRepo}, ${input.targetRepo},
           ${input.legacyRef}, ${input.targetRef}, ${input.prompt}, ${input.legacyBaseUrl},
@@ -232,7 +262,21 @@ export function createNeonArchiveStore(): ArchiveStore {
           ${input.executionReport ? JSON.stringify(input.executionReport) : null},
           ${input.evaluationReport ? JSON.stringify(input.evaluationReport) : null},
           ${JSON.stringify(input.evaluationVideos)}, ${JSON.stringify(input.runBranches)},
-          ${input.error}, ${input.createdAt ?? now}, ${now}
+          ${input.error}, ${JSON.stringify({
+            phase: input.phase,
+            phaseStatuses: input.phaseStatuses,
+            documents: input.documents,
+            researchReport: input.researchReport,
+            implementationPlan: input.implementationPlan,
+            implementationReport: input.implementationReport,
+            blockers: input.blockers,
+            researchAgentId: input.researchAgentId,
+            researchRunId: input.researchRunId,
+            planAgentId: input.planAgentId,
+            planRunId: input.planRunId,
+            implementAgentId: input.implementAgentId,
+            implementRunId: input.implementRunId,
+          })}, ${input.createdAt ?? now}, ${now}
         )
         ON CONFLICT (id) DO UPDATE SET
           env_name = EXCLUDED.env_name,
@@ -262,6 +306,7 @@ export function createNeonArchiveStore(): ArchiveStore {
           evaluation_videos = EXCLUDED.evaluation_videos,
           run_branches = EXCLUDED.run_branches,
           error = EXCLUDED.error,
+          workflow_state = EXCLUDED.workflow_state,
           updated_at = EXCLUDED.updated_at
       `;
       const stored = await this.get(input.id);

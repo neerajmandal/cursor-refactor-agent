@@ -24,8 +24,8 @@ test("file archive store lists, upserts, and serves artifacts", async () => {
       envName: "support-chat",
       legacyRepo: "acme/legacy",
       targetRepo: "acme/next",
-      prompt: "Prove parity",
-      phase: "aligning",
+      prompt: "Verify modern behavior",
+      phase: "plan",
     }),
   );
 

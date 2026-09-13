@@ -77,10 +77,10 @@ function ProjectRow({ archive }: { archive: ArchiveSummary }) {
           </div>
           <div className="flex shrink-0 flex-wrap items-center gap-3 text-[12px]">
             <span className="text-muted">{PHASE_LABEL[archive.phase]}</span>
-            {archive.evaluationStatus === "passed" ? (
-              <span className="text-good">Parity proven</span>
-            ) : archive.evaluationStatus === "failed" ? (
-              <span className="text-bad">Behavior differs</span>
+            {archive.verificationStatus === "passed" ? (
+              <span className="text-good">Verification passed</span>
+            ) : archive.verificationStatus === "failed" ? (
+              <span className="text-bad">Verification failed</span>
             ) : null}
             <span className="text-muted">{formatWhen(archive.updatedAt)}</span>
           </div>

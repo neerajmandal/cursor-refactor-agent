@@ -1,20 +1,37 @@
-import {
-  MAX_PROOF_CYCLES,
-  NEON_GOAL_CHECK,
-  OPENAI_GOAL_CHECK,
-  SAMPLE_UI_QUESTIONS,
-} from "@/lib/prompts";
 import type {
-  EvaluationCheck,
-  EvaluationReport,
-  EvaluationVideo,
-  ExecutionReport,
-  JourneyEvaluation,
+  Graph,
+  ImplementationPlanReport,
+  ImplementationReport,
   NodeStatus,
+  ResearchReport,
   RunBranch,
+  WorkflowDocument,
 } from "@/lib/types";
+import {
+  failedImplementationGates,
+  isImplementationPlan,
+  isResearchReport,
+} from "@/lib/workflow";
 
-export const REQUIRED_GOAL_GATES = [OPENAI_GOAL_CHECK, NEON_GOAL_CHECK] as const;
+type RecordValue = Record<string, unknown>;
+
+export type ResearchRunResult = {
+  graph: Graph;
+  report: ResearchReport;
+  document: Omit<WorkflowDocument, "agentId" | "runId" | "updatedAt">;
+};
+
+export type PlanRunResult = {
+  graph: Graph;
+  report: ImplementationPlanReport;
+  document: Omit<WorkflowDocument, "agentId" | "runId" | "updatedAt">;
+};
+
+export type ImplementRunResult = {
+  report: ImplementationReport;
+  steps: { id: string; status: "done" | "error"; summary: string }[];
+  documents: Omit<WorkflowDocument, "agentId" | "runId" | "updatedAt">[];
+};
 
 export function redactSecrets(value: string): string {
   return value
@@ -22,117 +39,282 @@ export function redactSecrets(value: string): string {
       /\b(?:OPENAI_API_KEY|DATABASE_URL)\s*=\s*[^\s]+/gi,
       "[REDACTED_ENV_VALUE]",
     )
-    .replace(
-      /\bpostgres(?:ql)?:\/\/[^\s"'<>]+/gi,
-      "[REDACTED_DATABASE_URL]",
-    )
+    .replace(/\bpostgres(?:ql)?:\/\/[^\s"'<>]+/gi, "[REDACTED_DATABASE_URL]")
     .replace(/\bsk-(?:proj-)?[A-Za-z0-9_-]{16,}\b/g, "[REDACTED_OPENAI_KEY]");
 }
 
-function exactCheck(
-  checks: EvaluationCheck[],
-  name: string,
-): EvaluationCheck | undefined {
-  return checks.find((item) => item.name === name);
-}
-
-function hasComputerUseArtifact(check: EvaluationCheck): boolean {
-  return check.evidence.some((item) =>
-    /\.(mp4|webm|mov|m4v|png|jpe?g|webp)(?:$|[?#])/i.test(item.trim()),
-  );
-}
-
-export function failedGoalGates(report: EvaluationReport): string[] {
-  const checks = report.journeys.flatMap((journey) => journey.checks);
-  const failures: string[] = [];
-
-  if (
-    !Number.isInteger(report.testCycles) ||
-    report.testCycles < 1 ||
-    report.testCycles > MAX_PROOF_CYCLES
-  ) {
-    failures.push(`1-${MAX_PROOF_CYCLES} complete computer-use proof cycles`);
-  }
-
-  for (const question of SAMPLE_UI_QUESTIONS) {
-    const check = exactCheck(checks, question);
-    if (
-      !check ||
-      check.status !== "passed" ||
-      !check.legacy.trim() ||
-      !check.target.trim() ||
-      !hasComputerUseArtifact(check)
-    ) {
-      failures.push(`Computer-use proof for "${question}"`);
-    }
-  }
-
-  const openAiCheck = exactCheck(checks, OPENAI_GOAL_CHECK);
-  const openAiEvidence = openAiCheck?.evidence
-    .map((item) => item.trim())
-    .filter(Boolean) ?? [];
-  if (
-    !openAiCheck ||
-    openAiCheck.status !== "passed" ||
-    openAiEvidence.filter((item) =>
-      /(resp[_-]|chatcmpl-|response\s*id|openai)/i.test(item),
-    ).length < SAMPLE_UI_QUESTIONS.length
-  ) {
-    failures.push(OPENAI_GOAL_CHECK);
-  }
-
-  const neonCheck = exactCheck(checks, NEON_GOAL_CHECK);
-  const neonEvidence = neonCheck?.evidence
-    .map((item) => item.trim())
-    .filter(Boolean) ?? [];
-  const neonText = neonEvidence.join("\n").toLowerCase();
-  if (
-    !neonCheck ||
-    neonCheck.status !== "passed" ||
-    !neonEvidence.some((item) => /\bep-[a-z0-9-]+\b/i.test(item)) ||
-    !SAMPLE_UI_QUESTIONS.every((question) =>
-      neonText.includes(question.toLowerCase()),
-    )
-  ) {
-    failures.push(NEON_GOAL_CHECK);
-  }
-
-  return failures;
-}
-
-function asRecord(value: unknown): Record<string, unknown> | null {
+function asRecord(value: unknown): RecordValue | null {
   return value && typeof value === "object" && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
+    ? (value as RecordValue)
     : null;
 }
 
-function parseMarkedJson(text: string, marker: string): Record<string, unknown> | null {
-  const expression = new RegExp(
-    `${marker}\\s*\\n?\\s*\`\`\`(?:json)?\\s*([\\s\\S]*?)\`\`\``,
-    "i",
-  );
-  const matches = [...text.matchAll(new RegExp(expression.source, "gi"))];
-  const raw = matches.at(-1)?.[1];
-  if (!raw) return null;
-  try {
-    return asRecord(JSON.parse(raw));
-  } catch {
+function parseJsonObject(text: string): unknown {
+  const start = text.search(/\{/);
+  if (start < 0) return null;
+  let depth = 0;
+  let inString = false;
+  let escape = false;
+  for (let index = start; index < text.length; index += 1) {
+    const character = text[index];
+    if (inString) {
+      if (escape) {
+        escape = false;
+        continue;
+      }
+      if (character === "\\") {
+        escape = true;
+        continue;
+      }
+      if (character === '"') inString = false;
+      continue;
+    }
+    if (character === '"') {
+      inString = true;
+      continue;
+    }
+    if (character === "{") depth += 1;
+    if (character === "}") {
+      depth -= 1;
+      if (depth === 0) {
+        try {
+          return JSON.parse(text.slice(start, index + 1));
+        } catch {
+          return null;
+        }
+      }
+    }
+  }
+  return null;
+}
+
+function markedJson(text: string, marker: string): RecordValue | null {
+  const index = text.toUpperCase().lastIndexOf(marker.toUpperCase());
+  if (index >= 0) {
+    const after = text.slice(index + marker.length);
+    const fence = after.match(/```(?:json)?\s*([\s\S]*)/i)?.[1];
+    const fromFence = asRecord(parseJsonObject(fence ?? ""));
+    if (fromFence) return fromFence;
+    const fromMarker = asRecord(parseJsonObject(after));
+    if (fromMarker) return fromMarker;
+  }
+  const trimmed = text.trim();
+  return trimmed.startsWith("{") ? asRecord(parseJsonObject(trimmed)) : null;
+}
+
+function documentValue(
+  value: unknown,
+): Omit<WorkflowDocument, "agentId" | "runId" | "updatedAt"> | null {
+  const record = asRecord(value);
+  if (
+    !record ||
+    typeof record.filename !== "string" ||
+    typeof record.artifactPath !== "string" ||
+    typeof record.content !== "string" ||
+    !record.content.trim()
+  ) {
     return null;
   }
+  return {
+    filename: record.filename,
+    artifactPath: record.artifactPath,
+    content: redactSecrets(record.content),
+  };
+}
+
+function researchFromRecord(value: RecordValue | null): ResearchRunResult | null {
+  const graph = asRecord(value?.graph) as Graph | null;
+  const report = asRecord(value?.report) as ResearchReport | null;
+  const document = documentValue(value?.document);
+  if (
+    !graph ||
+    !Array.isArray(graph.nodes) ||
+    !Array.isArray(graph.edges) ||
+    !isResearchReport(report) ||
+    !document ||
+    document.filename !== "research-plan.md"
+  ) {
+    return null;
+  }
+  return { graph, report, document };
+}
+
+export function extractResearchResult(text: string): ResearchRunResult | null {
+  return researchFromRecord(markedJson(text, "CURAL_RESEARCH_REPORT"));
+}
+
+export function isStubResearchDocument(content: string): boolean {
+  return /see\s+.+\bresearch-plan\.md\b/i.test(content);
+}
+
+export function isStubPlanDocument(content: string): boolean {
+  return /see\s+.+\bimplementation-plan\.md\b/i.test(content);
+}
+
+function withHostVerifyQuestions(
+  report: ImplementationPlanReport | null,
+  research: ResearchReport,
+): ImplementationPlanReport | null {
+  if (!report || !asRecord(report.verify) || !isResearchReport(research)) {
+    return null;
+  }
+  const [first, second] = research.questions;
+  return {
+    ...report,
+    verify: {
+      ...report.verify,
+      questions: [
+        { question: first.question, legacyAnswer: first.legacyAnswer },
+        { question: second.question, legacyAnswer: second.legacyAnswer },
+      ],
+    },
+  };
+}
+
+export function extractPlanResult(
+  text: string,
+  research: ResearchReport,
+): PlanRunResult | null {
+  const value = markedJson(text, "CURAL_PLAN_REPORT");
+  const graph = asRecord(value?.graph) as Graph | null;
+  const report = withHostVerifyQuestions(
+    asRecord(value?.report) as ImplementationPlanReport | null,
+    research,
+  );
+  const document = documentValue(value?.document);
+  if (
+    !graph ||
+    !Array.isArray(graph.nodes) ||
+    !Array.isArray(graph.edges) ||
+    !isImplementationPlan(report, research) ||
+    !document ||
+    document.filename !== "implementation-plan.md"
+  ) {
+    return null;
+  }
+  return { graph, report, document };
+}
+
+export function extractImplementationResult(
+  text: string,
+  plan: ImplementationPlanReport,
+): ImplementRunResult | null {
+  const value = markedJson(text, "CURAL_IMPLEMENTATION_REPORT");
+  if (!value) return null;
+  const observations = Array.isArray(value.observations)
+    ? value.observations
+    : [];
+  const recording = asRecord(value.recording);
+  const branch = asRecord(value.targetBranch);
+  const report: ImplementationReport = {
+    status: value.status === "passed" ? "passed" : "failed",
+    summary:
+      typeof value.summary === "string" ? redactSecrets(value.summary) : "",
+    testCycles:
+      typeof value.testCycles === "number" && Number.isInteger(value.testCycles)
+        ? value.testCycles
+        : 0,
+    observations: observations.map((item) => {
+      const record = asRecord(item) ?? {};
+      return {
+        question: String(record.question ?? ""),
+        legacyAnswer: redactSecrets(String(record.legacyAnswer ?? "")),
+        modernAnswer: redactSecrets(String(record.modernAnswer ?? "")),
+        evidence: Array.isArray(record.evidence)
+          ? record.evidence
+              .filter((evidence): evidence is string => typeof evidence === "string")
+              .map(redactSecrets)
+          : [],
+      };
+    }) as ImplementationReport["observations"],
+    openAiEvidence: Array.isArray(value.openAiEvidence)
+      ? value.openAiEvidence
+          .filter((item): item is string => typeof item === "string")
+          .map(redactSecrets)
+      : [],
+    neonEvidence: Array.isArray(value.neonEvidence)
+      ? value.neonEvidence
+          .filter((item): item is string => typeof item === "string")
+          .map(redactSecrets)
+      : [],
+    recording:
+      recording && typeof recording.path === "string"
+        ? {
+            path: recording.path,
+            label:
+              typeof recording.label === "string"
+                ? recording.label
+                : "Modern UI verification",
+          }
+        : null,
+    targetBranch: {
+      name: typeof branch?.name === "string" ? branch.name : "",
+      commit: typeof branch?.commit === "string" ? branch.commit : "",
+      pushed: branch?.pushed === true,
+    },
+  };
+  const steps = Array.isArray(value.steps)
+    ? value.steps.flatMap((item) => {
+        const record = asRecord(item);
+        if (
+          !record ||
+          typeof record.id !== "string" ||
+          (record.status !== "done" && record.status !== "error")
+        ) {
+          return [];
+        }
+        return [{
+          id: record.id,
+          status: record.status as "done" | "error",
+          summary:
+            typeof record.summary === "string"
+              ? redactSecrets(record.summary)
+              : "",
+        }];
+      })
+    : [];
+  const documents = Array.isArray(value.documents)
+    ? value.documents.flatMap((item) => {
+        const document = documentValue(item);
+        return document ? [document] : [];
+      })
+    : [];
+
+  const planSteps = plan.phases.flatMap((phase) => phase.steps);
+  const stepStatus = new Map(steps.map((step) => [step.id, step.status]));
+  const validatedPlan: ImplementationPlanReport = {
+    ...plan,
+    phases: plan.phases.map((phase) => ({
+      ...phase,
+      steps: phase.steps.map((step) => ({
+        ...step,
+        status: (stepStatus.get(step.id) ?? "error") as NodeStatus,
+      })),
+    })),
+  };
+  if (
+    documents.length < 2 ||
+    report.testCycles < 1 ||
+    report.testCycles > 3 ||
+    steps.length !== planSteps.length ||
+    failedImplementationGates(report, validatedPlan).length
+  ) {
+    report.status = "failed";
+  }
+  return { report, steps, documents };
 }
 
 export function extractProgress(
   text: string,
-  componentIds: string[],
+  stepIds: string[],
 ): Record<string, NodeStatus> {
-  const known = new Set(componentIds);
+  const known = new Set(stepIds);
   const statuses = Object.fromEntries(
-    componentIds.map((id) => [id, "pending" as NodeStatus]),
+    stepIds.map((id) => [id, "pending" as NodeStatus]),
   );
-  const marker =
-    /CURAL_STATUS\s+(\{[^\n]*"id"[^\n]*"status"[^\n]*\})/gi;
-
-  for (const match of text.matchAll(marker)) {
+  for (const match of text.matchAll(
+    /CURAL_STEP_STATUS\s+(\{[^\n]*"id"[^\n]*"status"[^\n]*\})/gi,
+  )) {
     try {
       const value = asRecord(JSON.parse(match[1]));
       const id = typeof value?.id === "string" ? value.id : "";
@@ -147,174 +329,14 @@ export function extractProgress(
         statuses[id] = status;
       }
     } catch {
-      // Ignore malformed progress lines; terminal reports remain authoritative.
+      // Malformed progress lines are ignored; the terminal report is authoritative.
     }
   }
-
   return statuses;
-}
-
-export function extractExecutionReport(text: string): ExecutionReport | null {
-  const record = parseMarkedJson(text, "CURAL_EXECUTION_REPORT");
-  if (!record || !Array.isArray(record.components)) return null;
-
-  const components = record.components.flatMap((item) => {
-    const value = asRecord(item);
-    if (!value) return [];
-    const id = typeof value.id === "string" ? value.id.trim() : "";
-    const status = value.status;
-    if (!id || (status !== "done" && status !== "error")) return [];
-    return [{
-      id,
-      status: status as "done" | "error",
-      summary:
-        typeof value.summary === "string"
-          ? redactSecrets(value.summary.trim())
-          : "",
-    }];
-  });
-  if (!components.length) return null;
-
-  return {
-    status:
-      record.status === "passed" &&
-      components.every((component) => component.status === "done")
-        ? "passed"
-        : "failed",
-    components,
-  };
-}
-
-function normalizeCheck(value: unknown): EvaluationCheck | null {
-  const record = asRecord(value);
-  const status = record?.status;
-  if (!record || (status !== "passed" && status !== "failed")) return null;
-  return {
-    name:
-      typeof record.name === "string"
-        ? redactSecrets(record.name)
-        : "Unnamed check",
-    status,
-    legacy:
-      typeof record.legacy === "string" ? redactSecrets(record.legacy) : "",
-    target:
-      typeof record.target === "string" ? redactSecrets(record.target) : "",
-    difference:
-      typeof record.difference === "string"
-        ? redactSecrets(record.difference)
-        : "",
-    evidence: Array.isArray(record.evidence)
-      ? record.evidence
-          .filter((item): item is string => typeof item === "string")
-          .map(redactSecrets)
-      : [],
-  };
-}
-
-function normalizeJourneyEvaluation(value: unknown): JourneyEvaluation | null {
-  const record = asRecord(value);
-  const status = record?.status;
-  if (
-    !record ||
-    typeof record.journeyId !== "string" ||
-    (status !== "passed" && status !== "failed")
-  ) {
-    return null;
-  }
-  return {
-    journeyId: record.journeyId,
-    status,
-    checks: Array.isArray(record.checks)
-      ? record.checks.flatMap((item) => {
-          const check = normalizeCheck(item);
-          return check ? [check] : [];
-        })
-      : [],
-  };
-}
-
-export function normalizeEvaluationVideo(value: unknown): EvaluationVideo | null {
-  const record = asRecord(value);
-  if (!record || typeof record.path !== "string" || !record.path.trim()) {
-    return null;
-  }
-  const path = record.path.trim();
-  return {
-    path,
-    label:
-      typeof record.label === "string" && record.label.trim()
-        ? record.label.trim()
-        : path.split("/").pop() || path,
-    journeyId:
-      typeof record.journeyId === "string" && record.journeyId.trim()
-        ? record.journeyId.trim()
-        : undefined,
-    sizeBytes:
-      typeof record.sizeBytes === "number" && Number.isFinite(record.sizeBytes)
-        ? record.sizeBytes
-        : undefined,
-    updatedAt:
-      typeof record.updatedAt === "string" ? record.updatedAt : undefined,
-    url: typeof record.url === "string" && record.url.trim()
-      ? record.url.trim()
-      : undefined,
-  };
 }
 
 export function isVideoArtifactPath(path: string): boolean {
   return /\.(mp4|webm|mov|m4v)$/i.test(path);
-}
-
-export function mergeEvaluationVideos(
-  reported: EvaluationVideo[],
-  artifacts: EvaluationVideo[],
-): EvaluationVideo[] {
-  const byPath = new Map<string, EvaluationVideo>();
-  for (const video of [...artifacts, ...reported]) {
-    const existing = byPath.get(video.path);
-    byPath.set(video.path, existing ? { ...existing, ...video } : video);
-  }
-  return [...byPath.values()];
-}
-
-export function extractEvaluationReport(text: string): EvaluationReport | null {
-  const record = parseMarkedJson(text, "CURAL_EVALUATION_REPORT");
-  if (!record || !Array.isArray(record.journeys)) return null;
-  const journeys = record.journeys.flatMap((item) => {
-    const journey = normalizeJourneyEvaluation(item);
-    return journey ? [journey] : [];
-  });
-  if (!journeys.length) return null;
-
-  const videos = Array.isArray(record.videos)
-    ? record.videos.flatMap((item) => {
-        const video = normalizeEvaluationVideo(item);
-        return video ? [video] : [];
-      })
-    : [];
-
-  const report: EvaluationReport = {
-    status:
-      record.status === "passed" &&
-      journeys.every((journey) => journey.status === "passed")
-        ? "passed"
-        : "failed",
-    summary:
-      typeof record.summary === "string"
-        ? redactSecrets(record.summary)
-        : "",
-    testCycles:
-      typeof record.testCycles === "number" &&
-      Number.isInteger(record.testCycles)
-        ? record.testCycles
-        : 0,
-    journeys,
-    videos,
-  };
-  if (failedGoalGates(report).length) {
-    return { ...report, status: "failed" };
-  }
-  return report;
 }
 
 export function runBranches(value: unknown): RunBranch[] {

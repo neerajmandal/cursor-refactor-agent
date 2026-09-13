@@ -4,12 +4,19 @@ import type {
   EvaluationVideo,
   ExecutionReport,
   Graph,
+  ImplementationPlanReport,
+  ImplementationReport,
   Journey,
   MigrationSnapshot,
   Phase,
+  PhaseStatuses,
+  ResearchReport,
   RunBranch,
+  WorkflowBlocker,
+  WorkflowDocument,
   WorkItem,
 } from "@/lib/types";
+import { defaultPhaseStatuses, legacyPhase } from "@/lib/workflow";
 
 export type ArtifactKind = "video" | "image" | "file";
 
@@ -38,6 +45,18 @@ export type RefactorArchive = {
   targetBaseUrl: string;
   fixtureCommand: string;
   phase: Phase;
+  phaseStatuses: PhaseStatuses;
+  documents: Record<string, WorkflowDocument>;
+  researchReport: ResearchReport | null;
+  implementationPlan: ImplementationPlanReport | null;
+  implementationReport: ImplementationReport | null;
+  blockers: WorkflowBlocker[];
+  researchAgentId: string;
+  researchRunId: string;
+  planAgentId: string;
+  planRunId: string;
+  implementAgentId: string;
+  implementRunId: string;
   asIs: Graph;
   toBe: Graph;
   journeys: Journey[];
@@ -68,6 +87,7 @@ export type ArchiveSummary = {
   createdAt: string;
   updatedAt: string;
   evaluationStatus: EvaluationReport["status"] | null;
+  verificationStatus: ImplementationReport["status"] | null;
 };
 
 export type ArchiveUpsert = Omit<
@@ -113,6 +133,7 @@ export function artifactKindFor(path: string, mime: string): ArtifactKind {
 
 export function mimeFromPath(path: string, fallback = "application/octet-stream"): string {
   const lower = path.toLowerCase();
+  if (lower.endsWith(".md")) return "text/markdown; charset=utf-8";
   if (lower.endsWith(".webm")) return "video/webm";
   if (lower.endsWith(".mov")) return "video/quicktime";
   if (lower.endsWith(".m4v")) return "video/x-m4v";
@@ -147,6 +168,7 @@ export function summarizeArchive(archive: RefactorArchive): ArchiveSummary {
     createdAt: archive.createdAt,
     updatedAt: archive.updatedAt,
     evaluationStatus: archive.evaluationReport?.status ?? null,
+    verificationStatus: archive.implementationReport?.status ?? null,
   };
 }
 
@@ -167,7 +189,44 @@ export function archiveFromBoard(
     legacyBaseUrl: board.legacyBaseUrl ?? previous?.legacyBaseUrl ?? "",
     targetBaseUrl: board.targetBaseUrl ?? previous?.targetBaseUrl ?? "",
     fixtureCommand: board.fixtureCommand ?? previous?.fixtureCommand ?? "",
-    phase: board.phase ?? previous?.phase ?? "analyzing_current",
+    phase: legacyPhase(board.phase ?? previous?.phase),
+    phaseStatuses:
+      board.phaseStatuses ??
+      previous?.phaseStatuses ??
+      defaultPhaseStatuses(legacyPhase(board.phase ?? previous?.phase)),
+    documents: board.documents ?? previous?.documents ?? {},
+    researchReport: board.researchReport ?? previous?.researchReport ?? null,
+    implementationPlan:
+      board.implementationPlan ?? previous?.implementationPlan ?? null,
+    implementationReport:
+      board.implementationReport ?? previous?.implementationReport ?? null,
+    blockers: board.blockers ?? previous?.blockers ?? [],
+    researchAgentId:
+      board.researchAgentId ??
+      previous?.researchAgentId ??
+      board.analyzeAgentId ??
+      previous?.analyzeAgentId ??
+      "",
+    researchRunId:
+      board.researchRunId ??
+      previous?.researchRunId ??
+      board.analyzeRunId ??
+      previous?.analyzeRunId ??
+      "",
+    planAgentId: board.planAgentId ?? previous?.planAgentId ?? "",
+    planRunId: board.planRunId ?? previous?.planRunId ?? "",
+    implementAgentId:
+      board.implementAgentId ??
+      previous?.implementAgentId ??
+      board.executeAgentId ??
+      previous?.executeAgentId ??
+      "",
+    implementRunId:
+      board.implementRunId ??
+      previous?.implementRunId ??
+      board.executeRunId ??
+      previous?.executeRunId ??
+      "",
     asIs: board.asIs ?? previous?.asIs ?? { caption: "", nodes: [], edges: [] },
     toBe: board.toBe ?? previous?.toBe ?? { caption: "", nodes: [], edges: [] },
     journeys: board.journeys ?? previous?.journeys ?? [],
