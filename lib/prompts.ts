@@ -1,6 +1,14 @@
+import {
+  attachedSpec,
+  executionPlan,
+  findComponent,
+  formatExecutionTree,
+  type ExecutionPlan,
+} from "@/lib/execution";
 import type { ComponentRef } from "@/lib/graph";
-import { formatSpec, parseSpec } from "@/lib/spec";
+import { parseSpec } from "@/lib/spec";
 import type {
+  Graph,
   GraphNode,
   Journey,
   MigrationSnapshot,
@@ -154,29 +162,37 @@ export function executePrompt(input: {
   extraPrompt?: string;
   components: GraphNode[];
   refs?: ComponentRef[];
+  plan?: ExecutionPlan;
   snapshot?: MigrationSnapshot;
   legacyBaseUrl?: string;
   targetBaseUrl?: string;
   fixtureCommand?: string;
 }): string {
-  const refs = input.refs ?? input.components.map((node) => ({
-    id: node.id,
-    label: node.label,
-    slug: node.id,
-  }));
-  const roster = refs
-    .map((ref, index) => {
-      const node = input.components[index];
-      const spec = formatSpec(parseSpec(node?.spec));
-      return `## ${ref.label}
-Component id: ${ref.id}
-Subagent slug: ${ref.slug}
-Kind: ${node?.kind ?? "component"}
+  const graph: Graph = input.snapshot?.toBe.nodes.length
+    ? input.snapshot.toBe
+    : { nodes: input.components, edges: input.snapshot?.toBe.edges ?? [] };
+  const plan = input.plan ?? executionPlan(graph);
+  const byId = new Map(plan.components.map((component) => [component.ref.id, component]));
+  const roster = plan.components
+    .map((component) => {
+      const parent = component.parentId
+        ? byId.get(component.parentId)
+        : undefined;
+      const children = component.childIds
+        .map((id) => byId.get(id)?.ref.slug)
+        .filter(Boolean)
+        .join(", ");
+      return `## ${component.node.label}
+Component id: ${component.ref.id}
+Subagent slug: ${component.ref.slug}
+Kind: ${component.node.kind ?? "component"}
+Parent: ${parent ? `${parent.node.label} [${parent.ref.slug}]` : "none (root)"}
+Direct children to spawn: ${children || "none"}
 
-Frozen execution spec:
-${spec || "No execution spec was provided."}`;
+${attachedSpec(component)}`;
     })
-    .join("\n");
+    .join("\n\n");
+  const rootSlugs = plan.roots.map((component) => component.ref.slug).join(", ");
 
   const baseRef = input.targetRef?.trim() || "the default/main branch";
   const goal = goalSection({
@@ -192,11 +208,11 @@ ${spec || "No execution spec was provided."}`;
   });
   return `You are the parent migration agent. Delegate implementation. Do not stop after writing code.
 
-Execute the frozen plan first. Only after the plan is in place, prove it with computer use: send the two sample questions in the UI.
+Execute the frozen plan first. Only after the plan is in place, prove it with computer use: send the two sample questions through the legacy app, then send the same two questions through the modern app.
 
 Hard stop — loop until both of these are true. Do not finish, do not open a PR, and do not emit passed reports until they are:
-- The two questions went through OpenAI (live API).
-- The two answers landed in Neon (queryable rows, not just the screen).
+- The two questions went through OpenAI (live API) in the modern app.
+- The two modern answers landed in the Neon database that belongs to the modern repo on ${input.executionBranch} (queryable rows, not just the screen).
 
 If either is missing, fix the modern app and run the computer-use test again. Keep that loop going. Do not hand off to a later testing step.
 
@@ -214,9 +230,15 @@ ${MODERN_UI_RULE}
 
 ${goal}
 
-You have named subagents, one per target component. Spawn the matching subagent (use the slug) for each component and let it implement that component in the target repo. Coordinate shared contracts, order work if there are dependencies, and keep the target repo consistent.
+Execute the frozen TARGET architecture as a hierarchy, not a flat list. Each named subagent already has that component's target-architecture spec attached. Do not rewrite specs.
 
-Components and frozen execution specs:
+Target architecture tree:
+${formatExecutionTree(plan) || "No target components."}
+
+Spawn only the root subagent(s): ${rootSlugs || "(none)"}.
+A parent implements its own layer, then spawns only its direct children (use those slugs). Children spawn their children. Do not skip levels. Do not implement a child's owns. Review each child diff against the attached spec and keep shared contracts consistent.
+
+Components and attached target specs:
 ${roster}
 
 Each time you start or finish a component, emit a status line on its own line so the board can light up that node:
@@ -225,11 +247,11 @@ CURAL_STATUS {"id":"<id>","status":"done"}
 CURAL_STATUS {"id":"<id>","status":"error"}
 
 Work loop (required):
-1. Execute the frozen plan. Spawn subagents for remaining components, review each diff, and keep the target repo consistent.
+1. Execute the frozen plan hierarchically. Spawn root subagents first, let each parent spawn its children, review each diff against the attached target spec, and keep the target repo consistent.
 2. Run the target repository's relevant checks.
-3. Then test with computer use (VM browser / computer use only). Do not use Playwright, Cypress, or Selenium. Do not compare source code. Start both apps and send the two sample questions as specified in the goal.
-4. Gate A — OpenAI: prove both questions were sent to the live OpenAI API. If not, you are not done.
-5. Gate B — Neon: prove both answers were written to the modern app's Neon database. If not, you are not done.
+3. Then test with computer use (VM browser / computer use only). Do not use Playwright, Cypress, or Selenium. Do not compare source code. Start both apps. Send the two sample questions via the legacy app, then send the same two questions via the modern app.
+4. Gate A — OpenAI: prove both modern questions were sent to the live OpenAI API. If not, you are not done.
+5. Gate B — Neon: prove both modern answers were written to the Neon database configured on the modern repo branch ${input.executionBranch}. Do not query main, the legacy database, or Cural's archive database. If not, you are not done.
 6. If Gate A or Gate B failed (or the UI did not show answers): fix the modern app on ${input.executionBranch} and go back to step 3. Do not stop. Do not mark passed.
 7. Repeat until Gate A and Gate B both pass and every component is done.
 
@@ -258,17 +280,42 @@ export function subagentPrompt(node: GraphNode, input: {
   executionBranch?: string;
   prompt: string;
   extraPrompt?: string;
+  plan?: ExecutionPlan;
 }): string {
-  const specText = formatSpec(parseSpec(node.spec));
+  const plan = input.plan ?? executionPlan({ nodes: [node], edges: [] });
+  const self = findComponent(plan, node.id) ?? {
+    ref: { id: node.id, label: node.label, slug: node.id },
+    node,
+    spec: parseSpec(node.spec),
+    parentId: null,
+    childIds: [] as string[],
+    depth: 0,
+  };
+  const byId = new Map(plan.components.map((component) => [component.ref.id, component]));
+  const parent = self.parentId ? byId.get(self.parentId) : undefined;
+  const children = self.childIds
+    .map((id) => byId.get(id))
+    .filter((component): component is NonNullable<typeof component> => Boolean(component));
+  const specText = attachedSpec(self);
   const branchLine = input.executionBranch
     ? `Work only on branch ${input.executionBranch} in the target repo. Do not commit to main.\n`
     : "";
+  const parentLine = parent
+    ? `Parent: ${parent.node.label} [${parent.ref.slug}]. Implement against that interface. Do not rebuild the parent.`
+    : "Parent: none. You are a root in the target architecture.";
+  const childSection = children.length
+    ? `Direct children — spawn each after your layer is in place. Attach their frozen spec by using the named subagent slug. Do not implement their owns.\n${children
+        .map((child) => `### ${child.node.label} [${child.ref.slug}]\n${attachedSpec(child)}`)
+        .join("\n\n")}`
+    : "Direct children: none. Implement only this component.";
 
-  return `You implement one component of a migration.
+  return `You implement one component of a hierarchical migration.
 
-Component id: ${node.id}
-Component name: ${node.label}
-Kind: ${node.kind ?? "component"}
+Component id: ${self.ref.id}
+Component name: ${self.node.label}
+Kind: ${self.node.kind ?? "component"}
+Subagent slug: ${self.ref.slug}
+${parentLine}
 
 Write code in the empty target repo: ${input.targetRepo}
 Use the legacy repo only as reference: ${input.legacyRepo}
@@ -279,10 +326,11 @@ ${input.prompt}
 
 UI (part of the parent goal — keep going until it holds):
 ${MODERN_UI_RULE}
-Questions must be sent through OpenAI. Answers must be persisted in the modern app's Neon database. Do not stub either.
+Questions must be sent through OpenAI. Persist modern answers in the Neon database configured on this modern-repo branch (${input.executionBranch || "the assigned execution branch"}). Do not use main's Neon config, the legacy database, or Cural's archive database. Do not stub either.
 
-Spec (source of truth, aligned by humans before execution):
-${specText || "No spec provided. Infer a minimal, correct implementation from the legacy repo."}
+${specText}
+
+${childSection}
 
 Stay inside this component's boundary. Match existing target-repo conventions if any files already exist.${operatorNotes(input.extraPrompt)}`;
 }
@@ -323,16 +371,16 @@ function goalSection(input: {
     .filter((journey) => journey.required);
   return `Goal (keep working until this is true):
 1. The frozen plan is implemented in the modern app.
-2. Computer use can ask the two sample questions in the UI.
-3. The modern app sends those questions through OpenAI.
-4. The modern app persists the answers in Neon.
+2. Computer use sends the two sample questions via the legacy app, then sends the same two questions via the modern app.
+3. The modern app sends those two questions through OpenAI.
+4. The modern app persists those two answers in the Neon database for the modern repo on ${targetBranch || "the assigned execution branch"}.
 
 Frozen journeys:
 ${frozenJourneys.length ? JSON.stringify(frozenJourneys, null, 2) : "Use the required snapshot journey."}
 
 Legacy app: ${input.legacyRepo}${input.legacyRef ? ` at ${input.legacyRef}` : " on its default/main branch"}
 Modern app: ${input.targetRepo}${targetBranch ? ` at ${targetBranch}` : ""}
-${targetBranch ? `Run the modern app from branch ${targetBranch}. Do not verify main.` : ""}
+${targetBranch ? `Run the modern app from branch ${targetBranch}. Do not verify main. Use that branch's DATABASE_URL / Neon config for the modern Neon check.` : ""}
 Legacy URL: ${input.legacyBaseUrl || "Start it from the repo README"}
 Modern URL: ${input.targetBaseUrl || "Start it from the repo README"}
 Reset if needed: ${input.fixtureCommand || "Use the repo's seed/reset command"}
@@ -340,20 +388,20 @@ Reset if needed: ${input.fixtureCommand || "Use the repo's seed/reset command"}
 The modern app should look like the legacy UI and show V2 in the header. Use that to tell the apps apart.
 
 Computer-use test (required after the plan is implemented):
-Ask these two questions in the UI of the legacy app, then again in the modern (V2) app:
+Send these two questions via the legacy app UI. Then send the same two questions via the modern (V2) app UI:
 ${questions}
 
-For each question, type it, submit, wait for the answer, and write down the visible result (answer text, error, empty state).
+For each question in each app, type it, submit, wait for the answer, and write down the visible result (answer text, error, empty state).
 
 OpenAI (required for the modern app):
-Those two questions must be sent to OpenAI — a live chat/completions (or Responses) call with the operator question in the request. Do not accept a stub, fixture, canned string, or local model. Prove it with runtime evidence: server logs showing the OpenAI client call, or an outbound request to api.openai.com, plus a provider response id. Fail if the screen shows an answer but OpenAI was not called.
+The same two questions sent via the modern app must go to OpenAI — a live chat/completions (or Responses) call with the operator question in the request. Do not accept a stub, fixture, canned string, or local model. Prove it with runtime evidence: server logs showing the OpenAI client call, or an outbound request to api.openai.com, plus a provider response id. Fail if the screen shows an answer but OpenAI was not called.
 
 Neon (required for the modern app):
-After each answer is visible, that question and answer must be persisted in the modern app's Neon Postgres database (conversation/message/history rows). Use the target repo's DATABASE_URL / Neon config, not Cural's archive database. Prove it by querying Neon (or the app's own history API backed by Neon) and finding both questions with their answers. Fail if answers exist only on screen or only in memory.
+After each modern answer is visible, that question and answer must be persisted in the Neon Postgres database configured on the modern repo's execution branch${targetBranch ? ` (${targetBranch})` : ""} — conversation/message/history rows. Use that branch's DATABASE_URL / Neon config from the modern repo. Do not use main, the legacy database, or Cural's archive database. Prove it by querying that Neon database (or the modern app's own history API backed by it) and finding both modern questions with their answers. Fail if answers exist only on screen or only in memory.
 
-Loop rule: if OpenAI was not used or Neon has no matching rows, the goal is not achieved. Fix the modern app and send the two questions again. Keep looping until both gates pass. Visible answers alone are not enough.
+Loop rule: if OpenAI was not used or the modern-branch Neon has no matching rows, the goal is not achieved. Fix the modern app and send the same two questions via the modern app again. Keep looping until both gates pass. Visible answers alone are not enough.
 
-The goal is achieved only when both apps show the same user-visible meaning AND Gate A (OpenAI) AND Gate B (Neon) pass. The goal is not achieved if an app will not start, V2 is missing, an answer cannot be seen, OpenAI was skipped, or Neon has no matching rows.
+The goal is achieved only when both apps show the same user-visible meaning AND Gate A (OpenAI) AND Gate B (Neon on the modern branch) pass. The goal is not achieved if an app will not start, V2 is missing, an answer cannot be seen, OpenAI was skipped, or the modern-branch Neon has no matching rows.
 
 Use these journey ids in the evaluation report: ${ids.join(", ") || "the required snapshot journey id"}.`;
 }

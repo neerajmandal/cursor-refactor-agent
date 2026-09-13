@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { executionPlan } from "@/lib/execution";
 import {
   SAMPLE_UI_QUESTIONS,
   executePrompt,
@@ -71,6 +72,11 @@ describe("execution prompts", () => {
       expect(prompt).not.toContain("Operator notes for this run");
     }
     expect(parent).toContain("Execute the frozen plan first");
+    expect(parent).toContain("send the two sample questions through the legacy app");
+    expect(parent).toContain("same two questions through the modern app");
+    expect(parent).toContain("Neon database configured on the modern repo branch cural/exec-snapshot-1");
+    expect(parent).toContain("as a hierarchy");
+    expect(parent).toContain("Frozen target-architecture spec");
     expect(parent).toContain("computer use");
     expect(parent).toContain("Gate A — OpenAI");
     expect(parent).toContain("Gate B — Neon");
@@ -103,6 +109,70 @@ describe("execution prompts", () => {
       expect(prompt).toContain("do not override frozen specs");
       expect(prompt).toContain("resolveFault(code) -> FaultResponse");
     }
+  });
+
+  it("spawns roots first and attaches child specs on parent subagents", () => {
+    const controller = {
+      id: "chat-controller",
+      label: "ChatController",
+      kind: "app",
+      spec: {
+        purpose: "HTTP entry for ask.",
+        interface: "POST /ask",
+        owns: "app/api/ask",
+        dependsOn: "ChatService",
+        portFrom: "legacy/ChatController",
+        outOfScope: "Persistence",
+        doneWhen: "Routes the question",
+      },
+    };
+    const service = {
+      id: "chat-service",
+      label: "ChatService",
+      kind: "service",
+      spec: {
+        purpose: "Answer the question.",
+        interface: "ask(question)",
+        owns: "chat/service.ts",
+        dependsOn: "",
+        portFrom: "legacy/ChatService",
+        outOfScope: "HTTP",
+        doneWhen: "Returns an answer",
+      },
+    };
+    const toBe = {
+      nodes: [controller, service],
+      edges: [{ from: "chat-controller", to: "chat-service" }],
+    };
+    const plan = executionPlan(toBe);
+    const parent = executePrompt({
+      ...migration,
+      executionBranch: "cural/exec-snapshot-1",
+      components: [controller, service],
+      plan,
+      snapshot: {
+        id: "snap-tree",
+        createdAt: "2026-01-01T00:00:00.000Z",
+        executionBranch: "cural/exec-snapshot-1",
+        architectureVersion: 1,
+        asIs: { nodes: [], edges: [] },
+        toBe,
+        journeys: [],
+      },
+    });
+    const childAware = subagentPrompt(controller, {
+      ...migration,
+      executionBranch: "cural/exec-snapshot-1",
+      plan,
+    });
+
+    expect(parent).toContain("Spawn only the root subagent(s): chat-controller");
+    expect(parent).toContain("Direct children to spawn: chat-service");
+    expect(parent).toContain("ask(question)");
+    expect(childAware).toContain("You implement one component of a hierarchical migration");
+    expect(childAware).toContain("Direct children");
+    expect(childAware).toContain("chat-service");
+    expect(childAware).toContain("ask(question)");
   });
 });
 

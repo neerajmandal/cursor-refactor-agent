@@ -1,5 +1,6 @@
 import { Agent, Cursor, type AgentDefinition, type CloudAgentOptions } from "@cursor/sdk";
 import { executionBranchName } from "@/lib/branch";
+import { executionPlan } from "@/lib/execution";
 import { componentRefs, layoutGraph } from "@/lib/graph";
 import { extractAnalysis } from "@/lib/journey";
 import {
@@ -149,19 +150,25 @@ export async function startExecute(input: {
 }): Promise<{ agentId: string; runId: string }> {
   const apiKey = requireApiKey();
   const agents: Record<string, AgentDefinition> = {};
-  const components = input.snapshot.toBe.nodes;
-  const refs = componentRefs(components);
+  const plan = executionPlan(input.snapshot.toBe);
+  const components = plan.components.map((component) => component.node);
+  const refs = plan.components.map((component) => component.ref);
 
   const executionBranch =
     input.snapshot.executionBranch?.trim() ||
     executionBranchName(input.snapshot.id);
-  refs.forEach((ref, index) => {
-    const node = components[index];
-    agents[ref.slug] = {
-      description: `Implement target component ${ref.label} (${ref.id}).`,
-      prompt: subagentPrompt(node, { ...input, executionBranch }),
+  for (const component of plan.components) {
+    agents[component.ref.slug] = {
+      description: component.parentId
+        ? `Implement target child ${component.ref.label} (${component.ref.id}) from the frozen target spec.`
+        : `Implement target root ${component.ref.label} (${component.ref.id}) and spawn its children.`,
+      prompt: subagentPrompt(component.node, {
+        ...input,
+        executionBranch,
+        plan,
+      }),
     };
-  });
+  }
 
   const repos = [
     { url: input.legacyRepo, startingRef: input.legacyRef || undefined },
@@ -193,6 +200,7 @@ export async function startExecute(input: {
         ...input,
         components,
         refs,
+        plan,
         executionBranch,
         snapshot: input.snapshot,
       }),
