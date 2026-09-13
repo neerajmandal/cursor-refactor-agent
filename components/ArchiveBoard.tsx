@@ -101,7 +101,7 @@ export function ArchiveBoard({ archive }: { archive: RefactorArchive }) {
               id: archive.executeAgentId,
             },
             {
-              label: "E2E user testing",
+              label: "UI testing",
               detail: "Walks both apps and compares outcomes.",
               id: archive.evaluationAgentId,
             },

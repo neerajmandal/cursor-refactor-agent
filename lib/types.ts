@@ -206,7 +206,7 @@ export const PHASE_LABEL: Record<Phase, string> = {
   analyzing_target: "Drafting target architecture",
   aligning: "Align on specs",
   executing: "Agents running",
-  evaluating: "End-to-end user testing",
-  parity_failed: "E2E user testing needs work",
-  done: "E2E user testing passed",
+  evaluating: "UI testing",
+  parity_failed: "UI testing needs work",
+  done: "UI testing passed",
 };

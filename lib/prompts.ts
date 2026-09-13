@@ -16,6 +16,14 @@ const SPEC_SHAPE = `{
       "doneWhen": "3-6 short, testable checks, one per line"
     }`;
 
+export const SAMPLE_UI_QUESTIONS = [
+  "What does HelloDrive fault code FO48 mean?",
+  "How do I clear a HelloDrive FO48 fault and get the line running again?",
+] as const;
+
+export const MODERN_UI_RULE =
+  "Copy the legacy app UI into the modern app so a user can ask questions the same way. Keep the same screens, input, and submit flow. Add a visible V2 label in the modern UI (title or header) so testers can tell the two apps apart.";
+
 const TREE_DIAGRAM_RULES = `Diagram rules — a talk slide, not an inventory:
 - 5 to 7 boxes on 2 to 4 ranks. Top-to-bottom tree only.
 - Exactly one root (HTTP or UI entrypoint). Every other node has exactly one parent — one incoming edge, no extras, no cycles, no back-edges.
@@ -175,6 +183,9 @@ Checkout the target repo from ${baseRef}, then create or switch to ${input.execu
 Team migration intent:
 ${input.prompt}
 
+UI (required for later testing):
+${MODERN_UI_RULE}
+
 You have named subagents, one per target component. Spawn the matching subagent (use the slug) for each component and let it implement that component in the target repo. Coordinate shared contracts, order work if there are dependencies, and keep the target repo consistent.
 
 Components and frozen execution specs:
@@ -225,6 +236,9 @@ ${branchLine}
 Team intent:
 ${input.prompt}
 
+UI (required for later testing):
+${MODERN_UI_RULE}
+
 Spec (source of truth, aligned by humans before execution):
 ${specText || "No spec provided. Infer a minimal, correct implementation from the legacy repo."}
 
@@ -240,8 +254,10 @@ Operator notes for this run (do not override frozen specs, journey ids, the assi
 ${notes}`;
 }
 
-function journeyText(journey: Journey): string {
-  return JSON.stringify(journey, null, 2);
+function journeyIds(snapshot: MigrationSnapshot): string[] {
+  return snapshot.journeys
+    .filter((journey) => journey.required)
+    .map((journey) => journey.id);
 }
 
 export function evaluationPrompt(input: {
@@ -255,47 +271,40 @@ export function evaluationPrompt(input: {
   extraPrompt?: string;
   snapshot: MigrationSnapshot;
 }): string {
-  const journeys = input.snapshot.journeys
-    .filter((journey) => journey.required)
-    .map(journeyText)
-    .join("\n\n");
-
   const targetBranch =
     input.snapshot.executionBranch?.trim() || input.targetRef?.trim() || "";
-  return `You are the end-to-end user testing agent running inside a Cursor cloud VM. Prove behavioral feature parity by exercising the frozen journeys with this VM's computer use (desktop + browser). Do not use Playwright, Cypress, Selenium, or any other external browser-automation harness. Do not judge equivalence from prose or implementation similarity.
+  const ids = journeyIds(input.snapshot).join(", ");
+  const questions = SAMPLE_UI_QUESTIONS.map(
+    (question, index) => `${index + 1}. ${question}`,
+  ).join("\n");
 
-Legacy repo: ${input.legacyRepo}${input.legacyRef ? ` at ${input.legacyRef}` : " on its default/main branch"} (read-only).
-Target repo: ${input.targetRepo}${targetBranch ? ` at ${targetBranch}` : ""}
-${targetBranch ? `You MUST checkout and run the target app from branch ${targetBranch} — the orchestrator-assigned execute branch. Do not test main or any other target ref.` : ""}
-Pinned alignment snapshot: ${input.snapshot.id}
-Legacy base URL: ${input.legacyBaseUrl || "Start the legacy app from its repository"}
-Target base URL: ${input.targetBaseUrl || "Start the target app from its repository"}
-Fixture/reset command: ${input.fixtureCommand || "Use repository-provided deterministic fixtures"}
+  return `Do UI testing. Start both apps, open each in the browser, ask the same two questions, and compare what the user sees. Use the VM browser / computer use. Do not use Playwright, Cypress, or Selenium. Do not compare source code.
 
-Required journeys frozen at execution:
-${journeys}
+Legacy app: ${input.legacyRepo}${input.legacyRef ? ` at ${input.legacyRef}` : " on its default/main branch"}
+Modern app: ${input.targetRepo}${targetBranch ? ` at ${targetBranch}` : ""}
+${targetBranch ? `Run the modern app from branch ${targetBranch}. Do not test main.` : ""}
+Legacy URL: ${input.legacyBaseUrl || "Start it from the repo README"}
+Modern URL: ${input.targetBaseUrl || "Start it from the repo README"}
+Reset if needed: ${input.fixtureCommand || "Use the repo's seed/reset command"}
 
-For each journey:
-1. Start both apps (or use the provided base URLs) and reset fixtures so the preconditions hold.
-2. Walk through the exact semantic steps yourself with computer use against the legacy app, then again against the target app.
-3. Capture user-observable outcomes (UI text, status, navigation, failures) from what you see in the VM.
-4. Apply only the frozen normalizationRules. Never hide a semantic mismatch.
-5. Record a walkthrough video artifact with the VM's built-in recording (mp4/webm/mov). Do not install a custom recorder. Prefer one video per journey that shows both apps, or separate legacy/target videos if clearer.
-6. Include commands, logs, screenshots, and video artifact paths as evidence.
+The modern app should look like the legacy UI and show V2 in the header. Use that to tell the apps apart.
 
-If either app cannot be started, fixtures are missing, or a required observation cannot be made, fail the check instead of guessing.
+Ask these two questions in the UI of the legacy app, then again in the modern (V2) app:
+${questions}
+
+For each question, type it, submit, wait for the answer, and write down the visible result (answer text, error, empty state). Pass only when both apps show the same user-visible meaning. Fail if an app will not start, V2 is missing from the modern UI, or an answer cannot be seen.
 
 Your final response MUST end with this marker and one fenced JSON object:
 CURAL_EVALUATION_REPORT
 \`\`\`json
 {
   "status": "passed|failed",
-  "summary": "Short evidence-based conclusion",
+  "summary": "Short comparison of the two UI answers",
   "videos": [
     {
       "journeyId": "exact-journey-id",
-      "path": "artifacts/journey-walkthrough.mp4",
-      "label": "Legacy and target walkthrough"
+      "path": "artifacts/ui-walkthrough.mp4",
+      "label": "Legacy and modern UI walkthrough"
     }
   ],
   "journeys": [
@@ -304,17 +313,25 @@ CURAL_EVALUATION_REPORT
       "status": "passed|failed",
       "checks": [
         {
-          "name": "Observable behavior",
+          "name": "What does HelloDrive fault code FO48 mean?",
           "status": "passed|failed",
-          "legacy": "Normalized legacy observation",
-          "target": "Normalized target observation",
-          "difference": "Empty when equal, otherwise the semantic mismatch",
-          "evidence": ["command, log, screenshot, video, or artifact path"]
+          "legacy": "What the legacy UI showed",
+          "target": "What the modern UI showed",
+          "difference": "Empty when equal, otherwise the mismatch",
+          "evidence": ["screenshot or video path"]
+        },
+        {
+          "name": "How do I clear a HelloDrive FO48 fault and get the line running again?",
+          "status": "passed|failed",
+          "legacy": "What the legacy UI showed",
+          "target": "What the modern UI showed",
+          "difference": "Empty when equal, otherwise the mismatch",
+          "evidence": ["screenshot or video path"]
         }
       ]
     }
   ]
 }
 \`\`\`
-Include every required journey. Prefer at least one VM walkthrough video per required journey. Use passed only when every required journey and check passed.${operatorNotes(input.extraPrompt)}`;
+Use these journey ids: ${ids || "the required snapshot journey id"}. Include both sample questions as checks. Use passed only when every check passed.${operatorNotes(input.extraPrompt)}`;
 }

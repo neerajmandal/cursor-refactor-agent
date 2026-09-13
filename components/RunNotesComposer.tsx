@@ -62,7 +62,7 @@ export function RunNotesComposer({
           <p className="mt-1 text-[11px] leading-4 text-muted">
             {appliesTo === "execute"
               ? "Applies to this execute run. Frozen specs and the assigned branch stay in force."
-              : "Applies to this E2E run. Frozen journeys and the assigned branch stay in force."}
+              : "Applies to this UI test run. The sample questions and assigned branch stay in force."}
           </p>
           <textarea
             id="run-notes-input"

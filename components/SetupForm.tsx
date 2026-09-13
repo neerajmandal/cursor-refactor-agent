@@ -8,7 +8,7 @@ const STEPS = [
   "Connect systems",
   "Review architecture",
   "Execute",
-  "E2E user testing",
+  "UI testing",
 ] as const;
 
 export function SetupForm() {
@@ -255,7 +255,7 @@ export function SetupForm() {
 
         <footer className="flex shrink-0 items-center justify-between gap-4 border-t border-line pt-3">
           <p className="hidden text-[12px] leading-4 text-muted sm:block">
-            Next: analyze → review on the board → execute → E2E user testing.
+            Next: analyze → review on the board → execute → UI testing.
           </p>
           <button
             type="submit"

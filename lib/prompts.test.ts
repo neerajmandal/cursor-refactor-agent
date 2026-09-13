@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  SAMPLE_UI_QUESTIONS,
   evaluationPrompt,
   executePrompt,
   operatorNotes,
@@ -44,6 +45,8 @@ describe("execution prompts", () => {
       expect(prompt).toContain("Unknown fault returns not-found");
       expect(prompt).toContain("Device telemetry ingestion");
       expect(prompt).toContain("cural/exec-snapshot-1");
+      expect(prompt).toContain("Copy the legacy app UI");
+      expect(prompt).toContain("V2");
       expect(prompt).not.toContain("Operator notes for this run");
     }
   });
@@ -71,7 +74,7 @@ describe("execution prompts", () => {
 });
 
 describe("evaluation prompts", () => {
-  it("requires Cursor VM computer use instead of Playwright", () => {
+  it("asks the agent to run both apps in the UI with two sample questions", () => {
     const prompt = evaluationPrompt({
       ...migration,
       legacyBaseUrl: "http://legacy.local",
@@ -100,13 +103,18 @@ describe("evaluation prompts", () => {
       },
     });
 
-    expect(prompt).toContain("Cursor cloud VM");
-    expect(prompt).toContain("computer use");
+    expect(prompt).toContain("Do UI testing");
+    expect(prompt).toContain("Start both apps");
     expect(prompt).toMatch(/Do not use Playwright/i);
-    expect(prompt).toContain("videos");
-    expect(prompt).not.toContain("tests/parity");
+    for (const question of SAMPLE_UI_QUESTIONS) {
+      expect(prompt).toContain(question);
+    }
+    expect(prompt).toContain("legacy app");
+    expect(prompt).toContain("modern (V2) app");
+    expect(prompt).toContain("V2");
     expect(prompt).toContain("cural/exec-snap-1");
-    expect(prompt).toMatch(/MUST checkout and run the target app from branch/);
+    expect(prompt).toContain("ask-a-question");
+    expect(prompt).not.toContain("tests/parity");
     expect(prompt).not.toContain("Operator notes for this run");
   });
 

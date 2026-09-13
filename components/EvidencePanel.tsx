@@ -71,18 +71,18 @@ export function EvidencePanel({
         <div className="grid gap-10 lg:grid-cols-[minmax(0,1fr)_320px]">
           <section>
             <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-muted">
-              End-to-end user testing
+              UI testing
             </p>
             <h2 className="mt-2 font-serif text-4xl tracking-tight">
               {report
                 ? report.status === "passed"
-                  ? "E2E user testing passed"
+                  ? "UI testing passed"
                   : "Behavior differs"
                 : "Evidence pending"}
             </h2>
             <p className="mt-3 max-w-2xl text-sm leading-6 text-muted">
               {report?.summary ||
-                "Cural will compare frozen end-user outcomes after the Cursor VM walks both apps."}
+                "Cural will start both apps, ask the two sample questions in each UI, and compare the answers."}
             </p>
 
             {walkthroughs.length ? (

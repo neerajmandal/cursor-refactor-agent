@@ -145,7 +145,7 @@ export function PreviewBoard() {
               id: "bc-demo-execute",
             },
             {
-              label: "E2E user testing",
+              label: "UI testing",
               detail: "Walks both apps and compares outcomes.",
               id: "bc-demo-evaluate",
             },

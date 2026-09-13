@@ -208,7 +208,7 @@ export async function startEvaluation(input: {
   const agent = await Agent.create({
     apiKey,
     model: MODEL,
-    name: "Cural end-to-end user testing",
+    name: "Cural UI testing",
     cloud: {
       ...cloudOptions(input.envName, [
         { url: input.legacyRepo, startingRef: input.legacyRef || undefined },

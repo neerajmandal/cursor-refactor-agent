@@ -664,7 +664,7 @@ export function Board() {
               ? report.status === "passed"
                 ? ""
                 : report.summary || "Behavior differs from legacy"
-              : data.error || "End-to-end user testing failed",
+              : data.error || "UI testing failed",
         });
       } catch (caught) {
         if (!cancelled) {
@@ -944,7 +944,7 @@ export function Board() {
                 onClick={retryEvaluation}
                 className="inline-flex items-center gap-2 rounded-md border border-line bg-white px-3.5 py-2 text-[13px] font-medium text-ink transition-colors hover:bg-paper-2"
               >
-                Rerun E2E testing
+                Rerun UI testing
               </button>
             </div>
           ) : null
@@ -958,7 +958,7 @@ export function Board() {
               onClick={retryEvaluation}
               disabled={!executionSnapshot || busy}
             >
-              Rerun E2E testing
+              Rerun UI testing
             </BoardOverflowItem>
             <BoardOverflowItem onClick={() => void copyLink()}>
               {copied ? "Copied" : "Copy link"}
@@ -978,7 +978,7 @@ export function Board() {
             ) : null}
             {evaluationAgentId ? (
               <div className="border-t border-line px-3 py-2">
-                <AgentIdLink label="E2E user testing" id={evaluationAgentId} />
+                <AgentIdLink label="UI testing" id={evaluationAgentId} />
               </div>
             ) : null}
           </>
@@ -1016,8 +1016,8 @@ export function Board() {
               id: executeAgentId,
             },
             {
-              label: "E2E user testing",
-              detail: "Walks both apps on the execute branch and compares outcomes.",
+              label: "UI testing",
+              detail: "Runs both apps in the browser, asks the sample questions, and compares answers.",
               id: evaluationAgentId,
             },
           ]}
