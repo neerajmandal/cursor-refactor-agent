@@ -270,12 +270,7 @@ function SystemCard({
           <span className="text-muted">{icon}</span>
           <h2 className="text-[13px] font-semibold text-ink">{title}</h2>
         </div>
-        {ready ? (
-          <span className="flex items-center gap-1.5 text-[11px] font-medium text-good">
-            <span className="h-1.5 w-1.5 rounded-full bg-good" aria-hidden />
-            Ready
-          </span>
-        ) : (
+        {ready ? null : (
           <span className="flex items-center gap-1.5 text-[11px] text-muted">
             <span className="h-1.5 w-1.5 rounded-full bg-line" aria-hidden />
             Waiting

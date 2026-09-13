@@ -6,6 +6,7 @@ import {
 import {
   clampSpecForSubagent,
   formatSpec,
+  formatSpecCompact,
   parseSpec,
   type ComponentSpec,
 } from "@/lib/spec";
@@ -78,6 +79,9 @@ export function attachedSpec(
   const spec = options?.compact
     ? clampSpecForSubagent(component.spec)
     : component.spec;
+  if (options?.compact) {
+    return formatSpecCompact(spec) || "No execution spec was provided.";
+  }
   const formatted = formatSpec(spec);
   return `Frozen target-architecture spec for ${component.node.label} (${component.ref.id}):
 ${formatted || "No execution spec was provided."}`;

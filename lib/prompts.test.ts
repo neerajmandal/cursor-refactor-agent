@@ -80,6 +80,11 @@ describe("execution prompts", () => {
     expect(parent).toContain("Neon database configured on the modern repo branch cural/exec-snapshot-1");
     expect(parent).toContain("as a hierarchy");
     expect(parent).toContain("Frozen target-architecture spec");
+    expect(child).toContain("Implement FaultService [fault-service]");
+    expect(child).toContain("Target");
+    expect(child).not.toContain("Team intent");
+    expect(child).not.toContain("Frozen target-architecture spec");
+    expect(child).not.toContain("You implement one component of a hierarchical migration");
     expect(parent).toContain("computer use");
     expect(parent).toContain("Gate A — OpenAI");
     expect(parent).toContain("Gate B — Neon");
@@ -107,11 +112,12 @@ describe("execution prompts", () => {
       extraPrompt: notes,
     });
 
-    for (const prompt of [parent, child]) {
-      expect(prompt).toContain(notes);
-      expect(prompt).toContain("do not override frozen specs");
-      expect(prompt).toContain("resolveFault(code) -> FaultResponse");
-    }
+    expect(parent).toContain(notes);
+    expect(parent).toContain("do not override frozen specs");
+    expect(parent).toContain("resolveFault(code) -> FaultResponse");
+    expect(child).toContain(`Note: ${notes}`);
+    expect(child).not.toContain("do not override frozen specs");
+    expect(child).toContain("resolveFault(code) -> FaultResponse");
   });
 
   it("spawns roots first and attaches child specs on parent subagents", () => {
@@ -172,8 +178,8 @@ describe("execution prompts", () => {
     expect(parent).toContain("Spawn only the root subagent(s): chat-controller");
     expect(parent).toContain("Direct children to spawn: chat-service");
     expect(parent).toContain("ask(question)");
-    expect(childAware).toContain("You implement one component of a hierarchical migration");
-    expect(childAware).toContain("Direct children");
+    expect(childAware).toContain("Implement ChatController [chat-controller]");
+    expect(childAware).toContain("Spawn: chat-service");
     expect(childAware).toContain("chat-service");
     expect(childAware).not.toContain("ask(question)");
     expect(childAware).not.toContain("```json");
@@ -193,7 +199,7 @@ describe("execution prompts", () => {
       expect(prompt).toContain(component.node.label);
       expect(prompt).not.toContain("```json");
       expect(prompt).not.toContain("Gate A — OpenAI");
-      expect(prompt.length).toBeLessThan(2_000);
+      expect(prompt.length).toBeLessThan(1_200);
     }
   });
 

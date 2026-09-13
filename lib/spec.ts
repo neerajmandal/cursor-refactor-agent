@@ -46,21 +46,21 @@ export function parseSpec(value: unknown): ComponentSpec {
     } catch {
       // Keep as a single purpose block for older freeform specs.
     }
-    return { ...EMPTY_SPEC, purpose: clampWords(trimmed) };
+    return normalizeSpec({ ...EMPTY_SPEC, purpose: trimmed });
   }
 
   const record = asRecord(value);
   if (!record) return { ...EMPTY_SPEC };
 
-  return {
-    purpose: clampWords(stringField(record, ["purpose", "summary", "goal"])),
+  return normalizeSpec({
+    purpose: stringField(record, ["purpose", "summary", "goal"]),
     interface: stringField(record, ["interface", "publicInterface", "api"]),
     owns: stringField(record, ["owns", "ownership"]),
     dependsOn: stringField(record, ["dependsOn", "depends_on", "dependencies"]),
     portFrom: stringField(record, ["portFrom", "port_from", "legacy"]),
     outOfScope: stringField(record, ["outOfScope", "out_of_scope", "not"]),
     doneWhen: stringField(record, ["doneWhen", "done_when", "acceptance"]),
-  };
+  });
 }
 
 function stringField(record: Record<string, unknown>, keys: string[]): string {
@@ -77,12 +77,16 @@ function stringField(record: Record<string, unknown>, keys: string[]): string {
   return "";
 }
 
-export const PURPOSE_WORD_LIMIT = 200;
-/** Short lines for custom-subagent specs so Cursor does not reject the prompt. */
-export const SUBAGENT_SPEC_FIELD_CHARS = 400;
-export const SUBAGENT_SPEC_FIELD_LINES = 4;
-export const SUBAGENT_SPEC_DONE_WHEN_LINES = 6;
-export const SUBAGENT_SPEC_PURPOSE_CHARS = 1_200;
+export const PURPOSE_WORD_LIMIT = 40;
+export const PURPOSE_SENTENCE_LIMIT = 2;
+export const SPEC_FIELD_LINES = 4;
+export const SPEC_FIELD_CHARS = 160;
+export const SPEC_DONE_WHEN_LINES = 4;
+export const SPEC_PURPOSE_CHARS = 280;
+export const SUBAGENT_SPEC_FIELD_CHARS = SPEC_FIELD_CHARS;
+export const SUBAGENT_SPEC_FIELD_LINES = SPEC_FIELD_LINES;
+export const SUBAGENT_SPEC_DONE_WHEN_LINES = SPEC_DONE_WHEN_LINES;
+export const SUBAGENT_SPEC_PURPOSE_CHARS = SPEC_PURPOSE_CHARS;
 
 export function wordCount(text: string): number {
   const parts = text.trim().split(/\s+/).filter(Boolean);
@@ -181,29 +185,45 @@ export function clampSpecField(
   return `${joined.slice(0, Math.max(0, maxChars - 1)).trimEnd()}…`;
 }
 
-export function clampSpecForSubagent(spec: ComponentSpec): ComponentSpec {
+export function normalizeSpec(spec: ComponentSpec): ComponentSpec {
+  const { lead } = skimPurpose(spec.purpose);
+  const purpose = sentencesOf(lead).slice(0, PURPOSE_SENTENCE_LIMIT).join(" ") || lead;
   return {
     purpose: clampSpecField(
-      clampWords(spec.purpose),
-      SUBAGENT_SPEC_FIELD_LINES,
-      SUBAGENT_SPEC_PURPOSE_CHARS,
+      clampWords(purpose),
+      PURPOSE_SENTENCE_LIMIT,
+      SPEC_PURPOSE_CHARS,
     ),
-    interface: clampSpecField(spec.interface),
-    owns: clampSpecField(spec.owns),
-    dependsOn: clampSpecField(spec.dependsOn),
-    portFrom: clampSpecField(spec.portFrom),
-    outOfScope: clampSpecField(spec.outOfScope),
-    doneWhen: clampSpecField(
-      spec.doneWhen,
-      SUBAGENT_SPEC_DONE_WHEN_LINES,
-    ),
+    interface: clampSpecField(spec.interface, SPEC_FIELD_LINES, SPEC_FIELD_CHARS),
+    owns: clampSpecField(spec.owns, SPEC_FIELD_LINES, SPEC_FIELD_CHARS),
+    dependsOn: clampSpecField(spec.dependsOn, SPEC_FIELD_LINES, SPEC_FIELD_CHARS),
+    portFrom: clampSpecField(spec.portFrom, SPEC_FIELD_LINES, SPEC_FIELD_CHARS),
+    outOfScope: clampSpecField(spec.outOfScope, 3, SPEC_FIELD_CHARS),
+    doneWhen: clampSpecField(spec.doneWhen, SPEC_DONE_WHEN_LINES, SPEC_FIELD_CHARS),
   };
+}
+
+export function clampSpecForSubagent(spec: ComponentSpec): ComponentSpec {
+  return normalizeSpec(spec);
 }
 
 export function formatSpec(spec: ComponentSpec): string {
   return SPEC_FIELDS.filter((field) => spec[field.key].trim())
     .map((field) => `${field.label}\n${spec[field.key].trim()}`)
     .join("\n\n");
+}
+
+export function formatSpecCompact(spec: ComponentSpec): string {
+  return SPEC_FIELDS.filter((field) => spec[field.key].trim())
+    .map((field) => {
+      const value = spec[field.key].trim();
+      if (!value.includes("\n")) return `${field.label}: ${value}`;
+      return `${field.label}:\n${value
+        .split("\n")
+        .map((line) => `  ${line}`)
+        .join("\n")}`;
+    })
+    .join("\n");
 }
 
 export function specEquals(a: ComponentSpec, b: ComponentSpec): boolean {

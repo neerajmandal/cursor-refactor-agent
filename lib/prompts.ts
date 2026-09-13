@@ -15,13 +15,13 @@ import type {
 } from "@/lib/types";
 
 const SPEC_SHAPE = `{
-      "purpose": "2-3 sentences, max 200 words: what this component is for. No implementation flow.",
-      "interface": "public types, functions, or HTTP routes only",
-      "owns": "files, tables, or data this component is responsible for",
-      "dependsOn": "neighbor components and how it calls them",
-      "portFrom": "legacy files or symbols to reuse",
-      "outOfScope": "what this subagent must not build",
-      "doneWhen": "3-6 short, testable checks, one per line"
+      "purpose": "1-2 sentences, max 40 words. What this component is for. No flow, files, or retries.",
+      "interface": "public types, functions, or HTTP routes only; one per line, max 4",
+      "owns": "target files or modules only; max 4 short lines",
+      "dependsOn": "neighbor components to call; max 4 short lines",
+      "portFrom": "legacy files or symbols; max 4 short lines",
+      "outOfScope": "what this subagent must not build; max 3 short lines",
+      "doneWhen": "3-4 short testable checks, one per line"
     }`;
 
 export const SAMPLE_UI_QUESTIONS = [
@@ -86,6 +86,7 @@ Return ONLY one JSON object in a fenced json code block:
 }
 
 ${TREE_DIAGRAM_RULES}
+- Specs are short cards, not essays. purpose is 1-2 sentences (max 40 words). Other fields are at most 4 short lines.
 
 ids are unique kebab-case. Every edge and journey componentId references existing node ids. Return one journey for this proof, grounded in source evidence. No markdown outside the json fence.`;
 }
@@ -143,12 +144,12 @@ ${TREE_DIAGRAM_RULES}
 
 Spec rules (required):
 - Use that exact spec object. Do not collapse it into one paragraph.
-- purpose is 2-3 sentences, never more than 200 words. Do not put the request flow, retries, or file paths in purpose.
-- Each other field is 1-4 short lines. Prefer line breaks over a long sentence.
+- purpose is 1-2 sentences, never more than 40 words. No request flow, retries, or file paths.
+- Each other field is at most 4 short lines. Prefer line breaks over a long sentence.
 - interface names real symbols a subagent can implement, one per line.
 - owns names files or modules in the target repo.
 - portFrom names legacy files/symbols. outOfScope is mandatory.
-- doneWhen is 3-6 concrete checks, one per line, no numbering. That is where the flow and acceptance belong.
+- doneWhen is 3-4 concrete checks, one per line, no numbering. That is where acceptance belongs.
 - Preserve every journey id and behavioral field. Remap only componentIds so every value references a node in this TARGET graph.`;
 }
 
@@ -275,8 +276,8 @@ Include every component exactly once. Use passed on both reports only when every
 }
 
 /** Cursor cloud rejects custom subagent `prompt` fields above this length. */
-export const SUBAGENT_PROMPT_MAX_CHARS = 6_000;
-const SUBAGENT_CONTEXT_MAX_CHARS = 400;
+export const SUBAGENT_PROMPT_MAX_CHARS = 2_000;
+const SUBAGENT_NOTE_MAX_CHARS = 80;
 
 export function subagentPrompt(node: GraphNode, input: {
   legacyRepo: string;
@@ -301,38 +302,25 @@ export function subagentPrompt(node: GraphNode, input: {
     .map((id) => byId.get(id))
     .filter((component): component is NonNullable<typeof component> => Boolean(component));
   const specText = attachedSpec(self, { compact: true });
-  const branchLine = input.executionBranch
-    ? `Work only on branch ${input.executionBranch} in the target repo. Do not commit to main.`
+  const branch = input.executionBranch
+    ? ` on ${input.executionBranch}`
     : "";
   const parentLine = parent
-    ? `Parent: ${parent.node.label} [${parent.ref.slug}]. Implement against that interface. Do not rebuild the parent.`
-    : "Parent: none. You are a root in the target architecture.";
-  const childSection = children.length
-    ? `Direct children — spawn each by slug after your layer is in place. Do not implement their owns.\n${children
-        .map((child) => `- ${child.node.label} [${child.ref.slug}]`)
-        .join("\n")}`
-    : "Direct children: none. Implement only this component.";
+    ? `Parent: ${parent.node.label} [${parent.ref.slug}]`
+    : "Parent: none (root)";
+  const childLine = children.length
+    ? `Spawn: ${children.map((child) => child.ref.slug).join(", ")}`
+    : "Spawn: none";
+  const note = clampChars(input.extraPrompt, SUBAGENT_NOTE_MAX_CHARS);
 
-  return fitCustomSubagentPrompt(`You implement one component of a hierarchical migration.
-
-Component id: ${self.ref.id}
-Component name: ${self.node.label}
-Kind: ${self.node.kind ?? "component"}
-Subagent slug: ${self.ref.slug}
+  return fitCustomSubagentPrompt(`Implement ${self.node.label} [${self.ref.slug}] (${self.ref.id}) in ${input.targetRepo}${branch}.
+Legacy reference only: ${input.legacyRepo}
 ${parentLine}
+${childLine}
+Stay in this component's owns. Do not rebuild the parent or implement a child's owns.
 
-Write code in the empty target repo: ${input.targetRepo}
-Use the legacy repo only as reference: ${input.legacyRepo}
-${branchLine}
-
-Team intent:
-${clampChars(input.prompt, SUBAGENT_CONTEXT_MAX_CHARS)}
-
-${specText}
-
-${childSection}
-
-Stay inside this component's boundary. Match existing target-repo conventions if any files already exist.${operatorNotes(clampChars(input.extraPrompt, SUBAGENT_CONTEXT_MAX_CHARS) || undefined)}`);
+Target
+${specText}${note ? `\nNote: ${note}` : ""}`);
 }
 
 export function fitCustomSubagentPrompt(

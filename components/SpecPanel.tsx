@@ -7,7 +7,7 @@ import {
   skimLines,
   skimPurpose,
   wordCount,
-  clampWords,
+  normalizeSpec,
   PURPOSE_WORD_LIMIT,
   SPEC_FIELDS,
   type ComponentSpec,
@@ -35,7 +35,7 @@ export function SpecPanel({
   const purposeWords = wordCount(draft.purpose);
 
   function save() {
-    onSave({ ...draft, purpose: clampWords(draft.purpose) });
+    onSave(normalizeSpec(draft));
     setEditing(false);
   }
 
@@ -104,7 +104,7 @@ export function SpecPanel({
                 </span>
                 <textarea
                   value={draft[field.key]}
-                  rows={field.key === "purpose" ? 5 : field.key === "doneWhen" ? 5 : 3}
+                  rows={field.key === "purpose" ? 3 : field.key === "doneWhen" ? 4 : 3}
                   onChange={(event) =>
                     setDraft((current) => ({
                       ...current,
@@ -113,7 +113,7 @@ export function SpecPanel({
                   }
                   placeholder={
                     field.key === "purpose"
-                      ? "2–3 sentences. What this component is for."
+                      ? "1–2 sentences. What this component is for."
                       : field.key === "interface"
                         ? "One symbol per line"
                         : "One item per line"
