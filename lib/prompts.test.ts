@@ -239,7 +239,9 @@ describe("execution prompts", () => {
     );
 
     expect(child.length).toBeLessThanOrEqual(SUBAGENT_PROMPT_MAX_CHARS);
-    expect(child).toContain("Frozen target-architecture spec");
+    expect(child).toContain("Target");
+    expect(child).not.toContain("Frozen target-architecture spec");
+    expect(child).not.toContain("Team intent");
     expect(child).not.toContain("x".repeat(2_000));
     expect(fitCustomSubagentPrompt(huge).length).toBe(SUBAGENT_PROMPT_MAX_CHARS);
   });
