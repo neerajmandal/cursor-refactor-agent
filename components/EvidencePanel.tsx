@@ -82,7 +82,7 @@ export function EvidencePanel({
             </h2>
             <p className="mt-3 max-w-2xl text-sm leading-6 text-muted">
               {report?.summary ||
-                "Execute implements the plan, then uses computer use to send two questions via the legacy app and the same two via the modern app. The modern questions must go through OpenAI, and those answers must land in the modern repo branch's Neon database."}
+                "Execute implements the plan, then uses computer use to send two questions via the legacy app and the same two via the modern app. The modern questions must go through OpenAI, and those answers must land in the default Neon database."}
             </p>
 
             {walkthroughs.length ? (

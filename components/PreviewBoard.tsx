@@ -65,8 +65,7 @@ const PASSED_REPORT: EvaluationReport = {
         target: "Two rows persisted",
         difference: "",
         evidence: [
-          "branch modern (br-dawn-night-aklu9v95)",
-          "endpoint ep-flat-cake-akxv2lu8",
+          "default Neon database at endpoint ep-demo",
           `row 1: ${DEMO_QUESTIONS[0]}`,
           `row 2: ${DEMO_QUESTIONS[1]}`,
         ],

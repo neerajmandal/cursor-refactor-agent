@@ -3,7 +3,6 @@ import {
   NEON_GOAL_CHECK,
   OPENAI_GOAL_CHECK,
   SAMPLE_UI_QUESTIONS,
-  modernNeonTarget,
 } from "@/lib/prompts";
 import type {
   EvaluationCheck,
@@ -87,13 +86,10 @@ export function failedGoalGates(report: EvaluationReport): string[] {
     .map((item) => item.trim())
     .filter(Boolean) ?? [];
   const neonText = neonEvidence.join("\n").toLowerCase();
-  const expectedNeon = modernNeonTarget();
   if (
     !neonCheck ||
     neonCheck.status !== "passed" ||
-    !neonText.includes(expectedNeon.branchName.toLowerCase()) ||
-    !neonText.includes(expectedNeon.branchId.toLowerCase()) ||
-    !neonText.includes(expectedNeon.endpointId.toLowerCase()) ||
+    !neonEvidence.some((item) => /\bep-[a-z0-9-]+\b/i.test(item)) ||
     !SAMPLE_UI_QUESTIONS.every((question) =>
       neonText.includes(question.toLowerCase()),
     )

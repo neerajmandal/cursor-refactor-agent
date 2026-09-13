@@ -25,11 +25,6 @@ const migration = {
   legacyRepo: "https://github.com/acme/legacy",
   targetRepo: "https://github.com/acme/target",
   prompt: "Preserve operator-visible behavior",
-  neonTarget: {
-    branchName: "modern",
-    branchId: "br-dawn-night-aklu9v95",
-    endpointId: "ep-flat-cake-akxv2lu8",
-  },
 };
 
 describe("execution prompts", () => {
@@ -71,9 +66,9 @@ describe("execution prompts", () => {
     expect(parent).toContain("V2");
     expect(parent).toContain("Implement the frozen plan");
     expect(parent).toContain("legacy UI first");
-    expect(parent).toContain("Neon branch modern");
-    expect(parent).toContain("br-dawn-night-aklu9v95");
-    expect(parent).toContain("ep-flat-cake-akxv2lu8");
+    expect(parent).toContain("default Neon database");
+    expect(parent).toContain("do not create, select, or require a separate Neon branch");
+    expect(parent).not.toContain("Neon branch modern");
     expect(parent).toContain("Frozen target-architecture spec");
     expect(parent).toContain("migration agent");
     expect(parent).toContain("plain-language target-spec summary");

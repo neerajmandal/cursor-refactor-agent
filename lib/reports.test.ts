@@ -45,8 +45,7 @@ const completeEvaluation = {
         name: NEON_GOAL_CHECK,
         status: "passed",
         evidence: [
-          "branch modern (br-dawn-night-aklu9v95)",
-          "endpoint ep-flat-cake-akxv2lu8",
+          "Neon endpoint ep-example",
           `row 1: ${SAMPLE_UI_QUESTIONS[0]}`,
           `row 2: ${SAMPLE_UI_QUESTIONS[1]}`,
         ],
@@ -141,7 +140,7 @@ CURAL_EVALUATION_REPORT
     );
   });
 
-  it("accepts complete UI, OpenAI, and modern Neon proof", () => {
+  it("accepts complete UI, OpenAI, and Neon proof without a named branch", () => {
     const report = extractEvaluationReport(`
 CURAL_EVALUATION_REPORT
 \`\`\`json

@@ -7,7 +7,6 @@ import {
   MAX_PROOF_CYCLES,
   asIsPrompt,
   executePrompt,
-  modernNeonTarget,
   toBePrompt,
 } from "@/lib/prompts";
 import {
@@ -63,17 +62,11 @@ export function cloudOptions(envName: string, repos: RepoInput[]): CloudAgentOpt
 export function evaluationEnvVars(input: {
   legacyBaseUrl: string;
   targetBaseUrl: string;
-  neonBranchName?: string;
-  neonBranchId?: string;
-  neonEndpointId?: string;
 }): Record<string, string> {
   return Object.fromEntries(
     [
       ["CURAL_LEGACY_BASE_URL", input.legacyBaseUrl.trim()],
       ["CURAL_TARGET_BASE_URL", input.targetBaseUrl.trim()],
-      ["CURAL_EXPECTED_NEON_BRANCH", input.neonBranchName?.trim() ?? ""],
-      ["CURAL_EXPECTED_NEON_BRANCH_ID", input.neonBranchId?.trim() ?? ""],
-      ["CURAL_EXPECTED_NEON_ENDPOINT_ID", input.neonEndpointId?.trim() ?? ""],
     ].filter((entry): entry is [string, string] => Boolean(entry[1])),
   );
 }
@@ -163,13 +156,9 @@ export async function startExecute(input: {
     { url: input.legacyRepo, startingRef: input.legacyRef || undefined },
     { url: input.targetRepo, startingRef: input.targetRef || undefined },
   ];
-  const neonTarget = modernNeonTarget();
   const envVars = evaluationEnvVars({
     legacyBaseUrl: input.legacyBaseUrl ?? "",
     targetBaseUrl: input.targetBaseUrl ?? "",
-    neonBranchName: neonTarget.branchName,
-    neonBranchId: neonTarget.branchId,
-    neonEndpointId: neonTarget.endpointId,
   });
   const agent = await Agent.create({
     apiKey,
@@ -195,7 +184,6 @@ export async function startExecute(input: {
         plan,
         executionBranch,
         snapshot: input.snapshot,
-        neonTarget,
       }),
       { idempotencyKey: input.requestKey },
     );

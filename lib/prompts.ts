@@ -33,31 +33,6 @@ export const MODERN_UI_RULE =
 export const OPENAI_GOAL_CHECK = "Questions sent via OpenAI";
 export const NEON_GOAL_CHECK = "Answers persisted in Neon";
 export const MAX_PROOF_CYCLES = 3;
-const DEFAULT_MODERN_NEON_TARGET = {
-  branchName: "modern",
-  branchId: "br-dawn-night-aklu9v95",
-  endpointId: "ep-flat-cake-akxv2lu8",
-} as const;
-
-export function modernNeonTarget(
-  environment: Readonly<Record<string, string | undefined>> = process.env,
-): {
-  branchName: string;
-  branchId: string;
-  endpointId: string;
-} {
-  return {
-    branchName:
-      environment.CURAL_MODERN_NEON_BRANCH?.trim() ||
-      DEFAULT_MODERN_NEON_TARGET.branchName,
-    branchId:
-      environment.CURAL_MODERN_NEON_BRANCH_ID?.trim() ||
-      DEFAULT_MODERN_NEON_TARGET.branchId,
-    endpointId:
-      environment.CURAL_MODERN_NEON_ENDPOINT_ID?.trim() ||
-      DEFAULT_MODERN_NEON_TARGET.endpointId,
-  };
-}
 
 const TREE_DIAGRAM_RULES = `Diagram rules — a talk slide, not an inventory:
 - 5 to 7 boxes on 2 to 4 ranks. Top-to-bottom tree only.
@@ -192,11 +167,6 @@ export function executePrompt(input: {
   legacyBaseUrl?: string;
   targetBaseUrl?: string;
   fixtureCommand?: string;
-  neonTarget: {
-    branchName: string;
-    branchId: string;
-    endpointId: string;
-  };
 }): string {
   const graph: Graph = input.snapshot?.toBe.nodes.length
     ? input.snapshot.toBe
@@ -232,7 +202,6 @@ ${attachedSpec(component)}`;
   const questions = SAMPLE_UI_QUESTIONS.map(
     (question, index) => `${index + 1}. ${question}`,
   ).join("\n");
-  const neonHostPrefix = `${input.neonTarget.endpointId}.`;
 
   return `You are the migration agent. Implement the frozen plan in the target repo and prove it works.
 
@@ -240,7 +209,7 @@ You may run at most ${MAX_PROOF_CYCLES} complete proof cycles. Do not emit passe
 
 Environment hard stop
 - DATABASE_URL and OPENAI_API_KEY must already exist in the selected Cursor cloud environment. Do not ask for them, invent them, copy them into source files, or print their values.
-- Parse DATABASE_URL without logging credentials. Its hostname must start with ${neonHostPrefix}, proving it targets Neon branch ${input.neonTarget.branchName} (${input.neonTarget.branchId}). A different endpoint, a local database, SQLite, an in-memory store, or a file fallback is a failure.
+- Parse DATABASE_URL without logging credentials and verify that it targets Neon Postgres. Use the default database addressed by DATABASE_URL for every database entry; do not create, select, or require a separate Neon branch. A local database, SQLite, an in-memory store, or a file fallback is a failure.
 - The modern app must use OPENAI_API_KEY for both live OpenAI requests and DATABASE_URL for both persisted question/answer rows.
 
 Legacy reference repo: ${input.legacyRepo}${input.legacyRef ? ` at ${input.legacyRef}` : " on its default/main branch"} (read-only).
@@ -275,7 +244,7 @@ Do this
 ${questions}
    Directly calling either app's HTTP/API endpoint with curl, fetch, a script, Playwright request APIs, or another API client does not count and is forbidden for these two question checks.
 6. Compare the answers for semantic parity: the diagnosis, operator actions, and safety constraints must agree; exact OpenAI wording need not match. Save computer-use video or screenshot artifacts that show each UI submission and visible answer.
-7. Prove the modern app sent both UI-entered questions to live OpenAI using two provider response IDs or equally specific logs. Query through DATABASE_URL and prove the same two questions and their non-empty answers are rows in Neon branch ${input.neonTarget.branchName}; evidence must include the redacted endpoint ID ${input.neonTarget.endpointId}, branch ID ${input.neonTarget.branchId}, and matching row identifiers.
+7. Prove the modern app sent both UI-entered questions to live OpenAI using two provider response IDs or equally specific logs. Query the default Neon database through DATABASE_URL and prove the same two questions and their non-empty answers are rows there; evidence must include the redacted Neon endpoint and matching row identifiers.
 8. If any UI, semantic parity, OpenAI, or Neon gate fails, fix the modern app on ${input.executionBranch}, commit and push the repair, and repeat the full legacy-then-modern sequence. Stop after ${MAX_PROOF_CYCLES} total cycles.
 9. Only when every gate passes, push the final branch and open a PR from ${input.executionBranch}. A failed run may leave its branch for inspection but must not open a PR.
 
@@ -339,7 +308,7 @@ CURAL_EVALUATION_REPORT
         {
           "name": "${NEON_GOAL_CHECK}",
           "status": "passed|failed",
-          "evidence": ["branch and endpoint ids plus query results for both rows"]
+          "evidence": ["redacted Neon endpoint plus default-database query results for both rows"]
         }
       ]
     }

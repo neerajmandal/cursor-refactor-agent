@@ -55,17 +55,10 @@ That server-side `DATABASE_URL` is Cural's archive database. The target app's
 inside the named Cursor cloud environment selected on the setup page. Cural
 never stores or forwards their values.
 
-Execution also checks non-secret metadata for the required target Neon branch:
-
-```dotenv
-CURAL_MODERN_NEON_BRANCH=modern
-CURAL_MODERN_NEON_BRANCH_ID=br-dawn-night-aklu9v95
-CURAL_MODERN_NEON_ENDPOINT_ID=ep-flat-cake-akxv2lu8
-```
-
-These values are injected as expectations only. The execute agent parses the
-target `DATABASE_URL` without printing it and fails if its hostname does not
-match the configured endpoint.
+The execute agent parses the target `DATABASE_URL` without printing it and
+verifies that it points to Neon Postgres. It writes every database entry to the
+default database addressed by that URL and does not create, select, or require
+a separate Neon branch.
 
 The setup page accepts optional pinned revisions, legacy/target base URLs, and a
 fixture/reset command. Provide them so execute can start both apps and prove
@@ -83,8 +76,8 @@ whether normalized, user-observable outcomes match.
 
 The agent may run at most three complete legacy-to-modern proof cycles. Every
 passed report must include computer-use artifacts, two live OpenAI response
-identifiers, and query evidence for both question/answer rows in the configured
-`modern` Neon branch.
+identifiers, and query evidence for both question/answer rows in the default
+Neon database.
 
 Normalization is explicit and reviewable:
 
