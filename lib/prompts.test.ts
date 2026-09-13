@@ -64,21 +64,18 @@ describe("execution prompts", () => {
     expect(parent).not.toContain("Operator notes for this run");
     expect(parent).toContain("Copy the legacy app UI");
     expect(parent).toContain("V2");
-    expect(parent).toContain("Execute the frozen plan first");
-    expect(parent).toContain("send the two sample questions through the legacy app");
-    expect(parent).toContain("same two questions through the modern app");
-    expect(parent).toContain("Neon database configured on the modern repo branch cural/exec-snapshot-1");
+    expect(parent).toContain("Implement the frozen plan");
+    expect(parent).toContain("legacy UI, then the modern V2 UI");
+    expect(parent).toContain("Neon database configured on branch cural/exec-snapshot-1");
     expect(parent).toContain("Frozen target-architecture spec");
-    expect(parent).toContain("master migration agent");
-    expect(parent).toContain("Use subagents whenever possible");
-    expect(parent).toContain("master agent coordinates all subagents");
-    expect(parent).toContain("there are no separate component-specific custom agent prompts");
+    expect(parent).toContain("migration agent");
+    expect(parent).toContain("summarize all frozen specs as one implementation plan");
+    expect(parent).toContain("Give each subagent a minimal prompt");
     expect(parent).toContain("computer use");
-    expect(parent).toContain("Gate A — OpenAI");
-    expect(parent).toContain("Gate B — Neon");
-    expect(parent).toContain("Keep that loop going");
     expect(parent).toContain("OpenAI");
     expect(parent).toContain("Neon");
+    expect(parent).toContain("Hard stop — loop until both of these are true");
+    expect(parent).toContain("Keep that loop going");
     expect(parent).toContain("CURAL_EVALUATION_REPORT");
     expect(parent).toContain("ask-a-question");
     for (const question of SAMPLE_UI_QUESTIONS) {
@@ -150,11 +147,11 @@ describe("execution prompts", () => {
       },
     });
 
-    expect(parent).toContain("Begin coordination with the root component(s): chat-controller");
+    expect(parent).toContain("Start with: chat-controller");
     expect(parent).toContain("Direct child components: chat-service");
     expect(parent).toContain("POST /ask");
     expect(parent).toContain("ask(question)");
-    expect(parent).toContain("master agent coordinates all subagents");
+    expect(parent).toContain("Give each subagent a minimal prompt");
   });
 });
 
