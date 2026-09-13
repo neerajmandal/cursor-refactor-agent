@@ -6,15 +6,18 @@ import {
 } from "@liveblocks/react/suspense";
 import { Board } from "@/components/Board";
 import { BoardErrorBoundary, BoardFallback } from "@/components/BoardFallback";
+import type { BoardView } from "@/lib/board-view";
 import type { Identity } from "@/lib/identity";
 import { createInitialBoardStorage } from "@/lib/types";
 
 export function BoardRoom({
   boardId,
   identity,
+  initialView,
 }: {
   boardId: string;
   identity: Identity;
+  initialView: BoardView;
 }) {
   return (
     <BoardErrorBoundary>
@@ -47,7 +50,7 @@ export function BoardRoom({
           initialStorage={createInitialBoardStorage()}
         >
           <ClientSideSuspense fallback={<BoardFallback />}>
-            <Board />
+            <Board initialView={initialView} />
           </ClientSideSuspense>
         </RoomProvider>
       </LiveblocksProvider>

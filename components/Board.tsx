@@ -10,7 +10,7 @@ import {
 } from "@liveblocks/react/suspense";
 import { AgentIdLink } from "@/components/AgentIdLink";
 import { ArchitecturePane } from "@/components/ArchitecturePane";
-import { BoardChrome, BoardOverflowItem, type BoardView } from "@/components/BoardChrome";
+import { BoardChrome, BoardOverflowItem } from "@/components/BoardChrome";
 import { CursorBriefPanel } from "@/components/CursorBriefPanel";
 import { EvidencePanel } from "@/components/EvidencePanel";
 import { SpecInspector } from "@/components/SpecInspector";
@@ -21,6 +21,7 @@ import {
   ThinkingStatus,
 } from "@/components/ThinkingStatus";
 import { persistBoardArchiveClient } from "@/lib/archive/client";
+import { boardViewHref, type BoardView } from "@/lib/board-view";
 import {
   createMigrationSnapshot,
   reconcileJourneyComponents,
@@ -110,8 +111,16 @@ function mergeWorkItems(
   return next;
 }
 
-export function Board() {
-  const [view, setView] = useState<View>("architecture");
+export function Board({ initialView }: { initialView: BoardView }) {
+  const [view, setViewState] = useState<View>(initialView);
+  const setView = useCallback((nextView: View) => {
+    setViewState(nextView);
+    window.history.replaceState(
+      null,
+      "",
+      boardViewHref(window.location.href, nextView),
+    );
+  }, []);
   const [selected, setSelected] = useState<{
     pane: "asIs" | "toBe";
     id: string;

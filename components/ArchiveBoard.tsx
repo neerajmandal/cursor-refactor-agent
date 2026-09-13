@@ -4,18 +4,23 @@ import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ArchitecturePane } from "@/components/ArchitecturePane";
-import { BoardChrome, BoardOverflowItem, type BoardView } from "@/components/BoardChrome";
+import { BoardChrome, BoardOverflowItem } from "@/components/BoardChrome";
 import { CursorBriefPanel } from "@/components/CursorBriefPanel";
 import { EvidencePanel } from "@/components/EvidencePanel";
+import { boardViewHref, type BoardView } from "@/lib/board-view";
 import { PHASE_LABEL } from "@/lib/types";
 import type { RefactorArchive } from "@/lib/archive/types";
 import { archiveArtifactUrl } from "@/lib/archive/types";
 
-type View = BoardView;
-
-export function ArchiveBoard({ archive }: { archive: RefactorArchive }) {
+export function ArchiveBoard({
+  archive,
+  initialView,
+}: {
+  archive: RefactorArchive;
+  initialView: BoardView;
+}) {
   const router = useRouter();
-  const [view, setView] = useState<View>("architecture");
+  const [view, setView] = useState<BoardView>(initialView);
   const [deleting, setDeleting] = useState(false);
   const [selected, setSelected] = useState<{ pane: "asIs" | "toBe"; id: string } | null>(
     null,
@@ -25,11 +30,20 @@ export function ArchiveBoard({ archive }: { archive: RefactorArchive }) {
     url: video.url || archiveArtifactUrl(archive.id, video.path),
   }));
 
+  function changeView(nextView: BoardView) {
+    setView(nextView);
+    window.history.replaceState(
+      null,
+      "",
+      boardViewHref(window.location.href, nextView),
+    );
+  }
+
   return (
     <div className="flex h-full min-h-0 flex-col bg-paper">
       <BoardChrome
         view={view}
-        onViewChange={setView}
+        onViewChange={changeView}
         status={
           <p className="hidden max-w-md truncate text-[12px] text-muted lg:block">
             {archive.envName || archive.legacyRepo} · {PHASE_LABEL[archive.phase]}
