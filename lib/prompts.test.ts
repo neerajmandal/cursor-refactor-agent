@@ -25,6 +25,11 @@ const migration = {
   legacyRepo: "https://github.com/acme/legacy",
   targetRepo: "https://github.com/acme/target",
   prompt: "Preserve operator-visible behavior",
+  neonTarget: {
+    branchName: "modern",
+    branchId: "br-dawn-night-aklu9v95",
+    endpointId: "ep-flat-cake-akxv2lu8",
+  },
 };
 
 describe("execution prompts", () => {
@@ -65,17 +70,22 @@ describe("execution prompts", () => {
     expect(parent).toContain("Copy the legacy app UI");
     expect(parent).toContain("V2");
     expect(parent).toContain("Implement the frozen plan");
-    expect(parent).toContain("legacy UI, then the modern V2 UI");
-    expect(parent).toContain("Neon database configured on branch cural/exec-snapshot-1");
+    expect(parent).toContain("legacy UI first");
+    expect(parent).toContain("Neon branch modern");
+    expect(parent).toContain("br-dawn-night-aklu9v95");
+    expect(parent).toContain("ep-flat-cake-akxv2lu8");
     expect(parent).toContain("Frozen target-architecture spec");
     expect(parent).toContain("migration agent");
-    expect(parent).toContain("summarize all frozen specs as one implementation plan");
+    expect(parent).toContain("plain-language target-spec summary");
     expect(parent).toContain("Give each subagent a minimal prompt");
-    expect(parent).toContain("computer use");
+    expect(parent).toContain("Cursor computer use");
+    expect(parent).toContain("visible browser UI only");
+    expect(parent).toContain("API client does not count and is forbidden");
     expect(parent).toContain("OpenAI");
     expect(parent).toContain("Neon");
-    expect(parent).toContain("Hard stop — loop until both of these are true");
-    expect(parent).toContain("Keep that loop going");
+    expect(parent).toContain("DATABASE_URL and OPENAI_API_KEY");
+    expect(parent).toContain("at most 3 complete proof cycles");
+    expect(parent).toContain("Stop after 3 total cycles");
     expect(parent).toContain("CURAL_EVALUATION_REPORT");
     expect(parent).toContain("ask-a-question");
     for (const question of SAMPLE_UI_QUESTIONS) {

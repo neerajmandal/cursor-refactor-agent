@@ -32,6 +32,32 @@ export const MODERN_UI_RULE =
 
 export const OPENAI_GOAL_CHECK = "Questions sent via OpenAI";
 export const NEON_GOAL_CHECK = "Answers persisted in Neon";
+export const MAX_PROOF_CYCLES = 3;
+const DEFAULT_MODERN_NEON_TARGET = {
+  branchName: "modern",
+  branchId: "br-dawn-night-aklu9v95",
+  endpointId: "ep-flat-cake-akxv2lu8",
+} as const;
+
+export function modernNeonTarget(
+  environment: Readonly<Record<string, string | undefined>> = process.env,
+): {
+  branchName: string;
+  branchId: string;
+  endpointId: string;
+} {
+  return {
+    branchName:
+      environment.CURAL_MODERN_NEON_BRANCH?.trim() ||
+      DEFAULT_MODERN_NEON_TARGET.branchName,
+    branchId:
+      environment.CURAL_MODERN_NEON_BRANCH_ID?.trim() ||
+      DEFAULT_MODERN_NEON_TARGET.branchId,
+    endpointId:
+      environment.CURAL_MODERN_NEON_ENDPOINT_ID?.trim() ||
+      DEFAULT_MODERN_NEON_TARGET.endpointId,
+  };
+}
 
 const TREE_DIAGRAM_RULES = `Diagram rules — a talk slide, not an inventory:
 - 5 to 7 boxes on 2 to 4 ranks. Top-to-bottom tree only.
@@ -166,6 +192,11 @@ export function executePrompt(input: {
   legacyBaseUrl?: string;
   targetBaseUrl?: string;
   fixtureCommand?: string;
+  neonTarget: {
+    branchName: string;
+    branchId: string;
+    endpointId: string;
+  };
 }): string {
   const graph: Graph = input.snapshot?.toBe.nodes.length
     ? input.snapshot.toBe
@@ -201,14 +232,16 @@ ${attachedSpec(component)}`;
   const questions = SAMPLE_UI_QUESTIONS.map(
     (question, index) => `${index + 1}. ${question}`,
   ).join("\n");
+  const neonHostPrefix = `${input.neonTarget.endpointId}.`;
 
   return `You are the migration agent. Implement the frozen plan in the target repo and prove it works.
 
-Hard stop — loop until both of these are true. Do not finish, do not open a PR, and do not emit passed reports until they are:
-- The two questions went through OpenAI (live API) in the modern app.
-- The two modern answers landed in the Neon database that belongs to the modern repo on ${input.executionBranch} (queryable rows, not just the screen).
+You may run at most ${MAX_PROOF_CYCLES} complete proof cycles. Do not emit passed reports or open a PR until every gate passes. If cycle ${MAX_PROOF_CYCLES} still fails, emit explicit failed reports and stop.
 
-If either is missing, fix the modern app and run the computer-use test again. Keep that loop going. Do not hand off to a later testing step.
+Environment hard stop
+- DATABASE_URL and OPENAI_API_KEY must already exist in the selected Cursor cloud environment. Do not ask for them, invent them, copy them into source files, or print their values.
+- Parse DATABASE_URL without logging credentials. Its hostname must start with ${neonHostPrefix}, proving it targets Neon branch ${input.neonTarget.branchName} (${input.neonTarget.branchId}). A different endpoint, a local database, SQLite, an in-memory store, or a file fallback is a failure.
+- The modern app must use OPENAI_API_KEY for both live OpenAI requests and DATABASE_URL for both persisted question/answer rows.
 
 Legacy reference repo: ${input.legacyRepo}${input.legacyRef ? ` at ${input.legacyRef}` : " on its default/main branch"} (read-only).
 Write ALL new code in the empty target repo: ${input.targetRepo}
@@ -234,15 +267,17 @@ Frozen component specs
 ${roster}
 
 Do this
-1. Before coding, summarize all frozen specs as one implementation plan: shared contracts, dependencies, execution order, and work that can run in parallel.
+1. Before coding, write a concise, plain-language target-spec summary. State the user goal, then give every component one short responsibility, its shared contracts, dependencies, acceptance checks, the execution order, and work that can run in parallel.
 2. Delegate independent components to subagents. Give each subagent a minimal prompt containing only its component spec, required shared contracts and dependencies, and the target repo and branch. Review and integrate every result.
-3. Implement any remaining shared work and run the target repo's checks.
-4. Start both apps and use computer use only to ask these questions in the legacy UI, then the modern V2 UI:
+3. Checkout the target base ref, create or switch to ${input.executionBranch}, implement the frozen plan, run the target repo's checks, then commit and push progress only to that branch.
+4. Run the environment hard stop. Start both apps only after DATABASE_URL, its Neon endpoint, and OPENAI_API_KEY pass.
+5. For each proof cycle, reset fixtures, then use Cursor computer use through the visible browser UI only. Enter and submit both questions in the legacy UI first, capture the visible answers, then enter and submit the same questions in the modern V2 UI:
 ${questions}
-5. Prove the modern app sent both questions to live OpenAI using logs or provider response IDs.
-6. Prove the modern app stored both questions and answers in the Neon database configured on branch ${input.executionBranch} by querying the rows.
-7. If the UI, OpenAI, or Neon check fails, fix the app and repeat from step 4.
-8. When everything passes, commit, push, and open a PR from ${input.executionBranch}.
+   Directly calling either app's HTTP/API endpoint with curl, fetch, a script, Playwright request APIs, or another API client does not count and is forbidden for these two question checks.
+6. Compare the answers for semantic parity: the diagnosis, operator actions, and safety constraints must agree; exact OpenAI wording need not match. Save computer-use video or screenshot artifacts that show each UI submission and visible answer.
+7. Prove the modern app sent both UI-entered questions to live OpenAI using two provider response IDs or equally specific logs. Query through DATABASE_URL and prove the same two questions and their non-empty answers are rows in Neon branch ${input.neonTarget.branchName}; evidence must include the redacted endpoint ID ${input.neonTarget.endpointId}, branch ID ${input.neonTarget.branchId}, and matching row identifiers.
+8. If any UI, semantic parity, OpenAI, or Neon gate fails, fix the modern app on ${input.executionBranch}, commit and push the repair, and repeat the full legacy-then-modern sequence. Stop after ${MAX_PROOF_CYCLES} total cycles.
+9. Only when every gate passes, push the final branch and open a PR from ${input.executionBranch}. A failed run may leave its branch for inspection but must not open a PR.
 
 Test setup
 - Legacy URL: ${input.legacyBaseUrl || "Start it from the repo README"}
@@ -267,6 +302,7 @@ CURAL_EVALUATION_REPORT
 {
   "status": "passed|failed",
   "summary": "Short result",
+  "testCycles": 1,
   "videos": [
     {
       "journeyId": "${reportJourneyId}",
@@ -285,7 +321,7 @@ CURAL_EVALUATION_REPORT
           "legacy": "Legacy result",
           "target": "Modern result",
           "difference": "Mismatch or empty",
-          "evidence": ["artifact path"]
+          "evidence": ["computer-use video or screenshot artifact path"]
         },
         {
           "name": "${SAMPLE_UI_QUESTIONS[1]}",
@@ -293,24 +329,24 @@ CURAL_EVALUATION_REPORT
           "legacy": "Legacy result",
           "target": "Modern result",
           "difference": "Mismatch or empty",
-          "evidence": ["artifact path"]
+          "evidence": ["computer-use video or screenshot artifact path"]
         },
         {
           "name": "${OPENAI_GOAL_CHECK}",
           "status": "passed|failed",
-          "evidence": ["log or response id"]
+          "evidence": ["one redacted log or provider response id per question"]
         },
         {
           "name": "${NEON_GOAL_CHECK}",
           "status": "passed|failed",
-          "evidence": ["query result"]
+          "evidence": ["branch and endpoint ids plus query results for both rows"]
         }
       ]
     }
   ]
 }
 \`\`\`
-Include every component once in the execution report and every required journey (${requiredJourneyIds.join(", ") || "the required snapshot journey id"}) in the evaluation report. Report passed only when all components, repo checks, UI checks, OpenAI, and Neon pass.${operatorNotes(input.extraPrompt)}`;
+Include every component once in the execution report and every required journey (${requiredJourneyIds.join(", ") || "the required snapshot journey id"}) in the evaluation report. testCycles is the number of full legacy-then-modern computer-use cycles actually run and must be between 1 and ${MAX_PROOF_CYCLES}. Report passed only when all components, repo checks, both UI-only question checks, semantic comparisons, OpenAI proofs, and Neon proofs pass.${operatorNotes(input.extraPrompt)}`;
 }
 
 export function operatorNotes(extraPrompt?: string): string {

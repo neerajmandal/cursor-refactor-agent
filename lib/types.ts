@@ -125,6 +125,7 @@ export type EvaluationVideo = {
 export type EvaluationReport = {
   status: "passed" | "failed";
   summary: string;
+  testCycles: number;
   journeys: JourneyEvaluation[];
   videos: EvaluationVideo[];
 };

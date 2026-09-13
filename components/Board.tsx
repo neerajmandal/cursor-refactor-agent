@@ -21,7 +21,12 @@ import {
   ThinkingStatus,
 } from "@/components/ThinkingStatus";
 import { persistBoardArchiveClient } from "@/lib/archive/client";
-import { reconcileJourneyComponents } from "@/lib/journey";
+import {
+  createMigrationSnapshot,
+  reconcileJourneyComponents,
+  validateAlignment,
+  workItemsFromSnapshot,
+} from "@/lib/journey";
 import {
   EMPTY_GRAPH,
   PHASE_LABEL,
@@ -32,6 +37,7 @@ import {
   type ExecutionReport,
   type Graph,
   type Journey,
+  type MigrationSnapshot,
   type NodeStatus,
   type RunBranch,
   type WorkItem,
@@ -187,6 +193,80 @@ export function Board() {
       }
       storage.set("error", "");
       return true;
+    },
+    [],
+  );
+
+  const claimExecute = useMutation(({ storage }, snapshot: MigrationSnapshot) => {
+    if (
+      storage.get("phase") !== "aligning" ||
+      storage.get("executeRunId")
+    ) {
+      return null;
+    }
+    const previousSnapshot = storage.get("executionSnapshot");
+    const previous =
+      previousSnapshot?.id === snapshot.id
+        ? ((storage.get("workItems") ?? {}) as Record<string, WorkItem>)
+        : {};
+    const componentIds = Object.keys(previous).length
+      ? Object.values(previous)
+          .filter((item) => item.status !== "done")
+          .map((item) => item.componentId)
+      : snapshot.toBe.nodes.map((node) => node.id);
+    if (!componentIds.length) return null;
+
+    const selected = new Set(componentIds);
+    const runSnapshot: MigrationSnapshot = {
+      ...snapshot,
+      toBe: {
+        ...snapshot.toBe,
+        nodes: snapshot.toBe.nodes.filter((node) => selected.has(node.id)),
+        edges: snapshot.toBe.edges.filter(
+          (edge) => selected.has(edge.from) && selected.has(edge.to),
+        ),
+      },
+    };
+
+    storage.set(
+      "workItems",
+      workItemsFromSnapshot(snapshot, previous, componentIds),
+    );
+    storage.set("phase", "executing");
+    storage.set("executionSnapshot", snapshot);
+    storage.set("executeAgentId", "pending");
+    storage.set("executeRunId", "pending");
+    storage.set("executionReport", null);
+    storage.set("evaluationReport", null);
+    storage.set("evaluationVideos", []);
+    storage.set("activeComponentIds", componentIds);
+    storage.set(
+      "nodeStatus",
+      Object.fromEntries(
+        snapshot.toBe.nodes.map((node) => [node.id, "pending" as const]),
+      ),
+    );
+    storage.set("runBranches", [{
+      repoUrl: storage.get("targetRepo") ?? "",
+      branch: snapshot.executionBranch,
+    }]);
+    storage.set("error", "");
+    return runSnapshot;
+  }, []);
+
+  const attachExecutionRun = useMutation(
+    ({ storage }, agentId: string, runId: string) => {
+      const active = new Set(storage.get("activeComponentIds") ?? []);
+      const current = (storage.get("workItems") ?? {}) as Record<string, WorkItem>;
+      storage.set(
+        "workItems",
+        Object.fromEntries(
+          Object.entries(current).map(([id, item]) => [
+            id,
+            active.has(id) ? { ...item, agentId, runId } : item,
+          ]),
+        ),
+      );
     },
     [],
   );
@@ -579,6 +659,64 @@ export function Board() {
     workItems,
   ]);
 
+  async function execute() {
+    const reconciledJourneys = reconcileJourneyComponents(asIs, toBe, journeys);
+    const alignmentErrors = validateAlignment(toBe, reconciledJourneys);
+    if (alignmentErrors.length) {
+      patch({
+        journeys: reconciledJourneys,
+        error: alignmentErrors.slice(0, 3).join(" · "),
+      });
+      return;
+    }
+
+    const snapshot = createMigrationSnapshot({
+      asIs,
+      toBe,
+      journeys: reconciledJourneys,
+      architectureVersion,
+    });
+    const attempt =
+      Math.max(0, ...Object.values(workItems).map((item) => item.attempts)) + 1;
+    patch({ journeys: reconciledJourneys, error: "" });
+    const runSnapshot = claimExecute(snapshot);
+    if (!runSnapshot) return;
+
+    try {
+      const response = await fetch("/api/execute", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          envName,
+          legacyRepo,
+          legacyRef,
+          targetRepo,
+          targetRef,
+          prompt,
+          snapshot: runSnapshot,
+          legacyBaseUrl,
+          targetBaseUrl,
+          fixtureCommand,
+          requestKey: `${room.id}:execute:${runSnapshot.id}:${attempt}`,
+        }),
+      });
+      const data = (await response.json()) as AnalyzeResponse;
+      if (!response.ok || !data.agentId || !data.runId) {
+        throw new Error(data.error || "Failed to start execution");
+      }
+      patch({ executeAgentId: data.agentId, executeRunId: data.runId });
+      attachExecutionRun(data.agentId, data.runId);
+      setView("evidence");
+    } catch (caught) {
+      patch({
+        phase: "aligning",
+        executeAgentId: "",
+        executeRunId: "",
+        error: caught instanceof Error ? caught.message : "Execute failed",
+      });
+    }
+  }
+
   function retryAnalysis() {
     patch({
       analyzeRunId: "",
@@ -664,6 +802,17 @@ export function Board() {
               </button>
             ) : null}
           </div>
+        }
+        primaryAction={
+          phase === "aligning" ? (
+            <button
+              type="button"
+              onClick={() => void execute()}
+              className="inline-flex items-center gap-2 rounded-md bg-cta px-3.5 py-2 text-[13px] font-medium text-white transition-colors hover:bg-ink"
+            >
+              Execute plan <span aria-hidden>→</span>
+            </button>
+          ) : null
         }
         overflow={
           <>

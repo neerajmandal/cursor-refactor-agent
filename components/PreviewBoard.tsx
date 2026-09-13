@@ -15,9 +15,15 @@ import type {
   WorkItem,
 } from "@/lib/types";
 
+const DEMO_QUESTIONS = [
+  "What does HelloDrive fault code FO48 mean?",
+  "How do I clear a HelloDrive FO48 fault and get the line running again?",
+] as const;
+
 const PASSED_REPORT: EvaluationReport = {
   status: "passed",
   summary: "The frozen ask-a-question journey produced the same observable answer and failure behavior.",
+  testCycles: 1,
   videos: [{
     journeyId: "ask-a-question",
     path: "artifacts/ask-a-question-walkthrough.mp4",
@@ -27,14 +33,45 @@ const PASSED_REPORT: EvaluationReport = {
   journeys: [{
     journeyId: "ask-a-question",
     status: "passed",
-    checks: [{
-      name: "Answer is returned",
-      status: "passed",
-      legacy: "200 · ChatResponse with answer",
-      target: "200 · ChatResponse with answer",
-      difference: "",
-      evidence: ["artifacts/ask-a-question-walkthrough.mp4", "artifacts/answer.png"],
-    }],
+    checks: [
+      {
+        name: DEMO_QUESTIONS[0],
+        status: "passed",
+        legacy: "FO48 indicates an overcurrent fault.",
+        target: "FO48 indicates an overcurrent fault.",
+        difference: "",
+        evidence: ["artifacts/ask-a-question-walkthrough.mp4"],
+      },
+      {
+        name: DEMO_QUESTIONS[1],
+        status: "passed",
+        legacy: "Inspect the motor and reset the drive after correcting the cause.",
+        target: "Inspect the motor and reset the drive after correcting the cause.",
+        difference: "",
+        evidence: ["artifacts/ask-a-question-walkthrough.mp4"],
+      },
+      {
+        name: "Questions sent via OpenAI",
+        status: "passed",
+        legacy: "",
+        target: "Two live OpenAI responses",
+        difference: "",
+        evidence: ["response id resp_demo_1", "response id resp_demo_2"],
+      },
+      {
+        name: "Answers persisted in Neon",
+        status: "passed",
+        legacy: "",
+        target: "Two rows persisted",
+        difference: "",
+        evidence: [
+          "branch modern (br-dawn-night-aklu9v95)",
+          "endpoint ep-flat-cake-akxv2lu8",
+          `row 1: ${DEMO_QUESTIONS[0]}`,
+          `row 2: ${DEMO_QUESTIONS[1]}`,
+        ],
+      },
+    ],
   }],
 };
 
@@ -64,7 +101,7 @@ export function PreviewBoard() {
   const [asIs, setAsIs] = useState<Graph>(SAMPLE_AS_IS);
   const [toBe, setToBe] = useState<Graph>(SAMPLE_TO_BE);
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [phase] = useState<Phase>("done");
+  const [phase, setPhase] = useState<Phase>("aligning");
   const [view, setView] = useState<BoardView>("architecture");
 
   const selected = toBe.nodes.find((node) => node.id === selectedId);
@@ -86,6 +123,12 @@ export function PreviewBoard() {
     }));
   }
 
+  function executeProof() {
+    setPhase("executing");
+    setView("evidence");
+    window.setTimeout(() => setPhase("done"), 650);
+  }
+
   return (
     <div className="relative flex h-svh min-h-0 flex-col bg-paper">
       <BoardChrome
@@ -96,6 +139,17 @@ export function PreviewBoard() {
             <span className="text-[12px] text-muted">
               {phase === "done" ? "Goal achieved" : "Working toward the goal…"}
             </span>
+          ) : null
+        }
+        primaryAction={
+          phase === "aligning" ? (
+            <button
+              type="button"
+              onClick={executeProof}
+              className="inline-flex items-center gap-2 rounded-md bg-cta px-3.5 py-2 text-[13px] font-medium text-white transition-colors hover:bg-ink"
+            >
+              Execute plan <span aria-hidden>→</span>
+            </button>
           ) : null
         }
       />
@@ -127,8 +181,7 @@ export function PreviewBoard() {
           evaluationAgentId="bc-demo-execute"
           branches={[{
             repoUrl: "https://github.com/acme/target",
-            branch: "cursor/migration-proof",
-            prUrl: "https://github.com/acme/target/pull/42",
+            branch: "cural/exec-snapshot-demo",
           }]}
           journeys={[{
             id: "ask-a-question",

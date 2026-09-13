@@ -31,7 +31,14 @@ export function SetupForm() {
 
   async function onSubmit(event: React.FormEvent) {
     event.preventDefault();
-    if (!legacyRepo.trim() || !targetRepo.trim() || !prompt.trim()) return;
+    if (
+      !envName.trim() ||
+      !legacyRepo.trim() ||
+      !targetRepo.trim() ||
+      !prompt.trim()
+    ) {
+      return;
+    }
     setBusy(true);
     setSubmitError("");
     const id = nanoid(10);
@@ -116,7 +123,7 @@ export function SetupForm() {
               Cursor cloud environment
             </h2>
             <p className="mt-0.5 text-[11px] leading-4 text-muted">
-              Optional named env, or leave blank to clone URLs.
+              Required for execute; stores target app secrets.
             </p>
           </div>
           <input
@@ -125,6 +132,7 @@ export function SetupForm() {
             placeholder="e.g. acme-modernization"
             className="card-input min-w-0 flex-1"
             aria-label="Environment name"
+            required
           />
           <a
             href="https://cursor.com/dashboard"

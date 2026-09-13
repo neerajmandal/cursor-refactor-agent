@@ -3,7 +3,13 @@ import { executionBranchName } from "@/lib/branch";
 import { executionPlan } from "@/lib/execution";
 import { componentRefs, layoutGraph } from "@/lib/graph";
 import { extractAnalysis } from "@/lib/journey";
-import { asIsPrompt, executePrompt, toBePrompt } from "@/lib/prompts";
+import {
+  MAX_PROOF_CYCLES,
+  asIsPrompt,
+  executePrompt,
+  modernNeonTarget,
+  toBePrompt,
+} from "@/lib/prompts";
 import {
   extractEvaluationReport,
   extractExecutionReport,
@@ -11,6 +17,7 @@ import {
   failedGoalGates,
   isVideoArtifactPath,
   mergeEvaluationVideos,
+  redactSecrets,
   runBranches,
   videoContentType,
 } from "@/lib/reports";
@@ -56,11 +63,17 @@ export function cloudOptions(envName: string, repos: RepoInput[]): CloudAgentOpt
 export function evaluationEnvVars(input: {
   legacyBaseUrl: string;
   targetBaseUrl: string;
+  neonBranchName?: string;
+  neonBranchId?: string;
+  neonEndpointId?: string;
 }): Record<string, string> {
   return Object.fromEntries(
     [
       ["CURAL_LEGACY_BASE_URL", input.legacyBaseUrl.trim()],
       ["CURAL_TARGET_BASE_URL", input.targetBaseUrl.trim()],
+      ["CURAL_EXPECTED_NEON_BRANCH", input.neonBranchName?.trim() ?? ""],
+      ["CURAL_EXPECTED_NEON_BRANCH_ID", input.neonBranchId?.trim() ?? ""],
+      ["CURAL_EXPECTED_NEON_ENDPOINT_ID", input.neonEndpointId?.trim() ?? ""],
     ].filter((entry): entry is [string, string] => Boolean(entry[1])),
   );
 }
@@ -150,9 +163,13 @@ export async function startExecute(input: {
     { url: input.legacyRepo, startingRef: input.legacyRef || undefined },
     { url: input.targetRepo, startingRef: input.targetRef || undefined },
   ];
+  const neonTarget = modernNeonTarget();
   const envVars = evaluationEnvVars({
     legacyBaseUrl: input.legacyBaseUrl ?? "",
     targetBaseUrl: input.targetBaseUrl ?? "",
+    neonBranchName: neonTarget.branchName,
+    neonBranchId: neonTarget.branchId,
+    neonEndpointId: neonTarget.endpointId,
   });
   const agent = await Agent.create({
     apiKey,
@@ -160,11 +177,11 @@ export async function startExecute(input: {
     name: "Cural migration execute",
     cloud: {
       ...cloudOptions(input.envName, repos),
-      autoCreatePR: true,
       metadata: {
         workflow: "migration-execute",
         snapshotId: input.snapshot.id,
       },
+      autoCreatePR: false,
       ...(Object.keys(envVars).length ? { envVars } : {}),
     },
   });
@@ -178,6 +195,7 @@ export async function startExecute(input: {
         plan,
         executionBranch,
         snapshot: input.snapshot,
+        neonTarget,
       }),
       { idempotencyKey: input.requestKey },
     );
@@ -267,6 +285,7 @@ export async function pollRun(input: {
   // available. Status and terminal result metadata are durable; conversation
   // streams are not, so polling must never depend on run.conversation().
   const text = run.result ?? "";
+  const safeText = redactSecrets(text);
   const refs = input.components?.length
     ? componentRefs(input.components)
     : input.componentIds?.length
@@ -278,13 +297,13 @@ export async function pollRun(input: {
   const branches = runBranches(run.git);
 
   if (run.status === "running") {
-    return { status: run.status, result: text, nodeStatus, branches };
+    return { status: run.status, result: safeText, nodeStatus, branches };
   }
 
   if (run.status === "error" || run.status === "cancelled") {
     return {
       status: run.status,
-      result: text,
+      result: safeText,
       error: run.error?.message ?? `Run ${run.status}`,
       nodeStatus,
       branches,
@@ -296,7 +315,7 @@ export async function pollRun(input: {
     if (!executionReport) {
       return {
         status: "error",
-        result: text,
+        result: safeText,
         error: "Execution finished without a valid CURAL_EXECUTION_REPORT",
         nodeStatus,
         branches,
@@ -326,7 +345,7 @@ export async function pollRun(input: {
     ) {
       return {
         status: "error",
-        result: text,
+        result: safeText,
         error: "One or more components did not complete successfully",
         nodeStatus: finalStatus,
         executionReport,
@@ -338,7 +357,7 @@ export async function pollRun(input: {
     if (!evaluationReport) {
       return {
         status: "error",
-        result: text,
+        result: safeText,
         error: "Execution finished without proving the goal (missing CURAL_EVALUATION_REPORT)",
         nodeStatus: finalStatus,
         executionReport,
@@ -349,10 +368,12 @@ export async function pollRun(input: {
     if (evaluationReport.status !== "passed" || missingGates.length) {
       return {
         status: "error",
-        result: text,
+        result: safeText,
         error:
           missingGates.length
-            ? `Keep looping: ${missingGates.join(" and ")} did not pass`
+            ? evaluationReport.testCycles >= MAX_PROOF_CYCLES
+              ? `Proof failed after ${MAX_PROOF_CYCLES} cycles: ${missingGates.join(" and ")} did not pass`
+              : `Keep looping: ${missingGates.join(" and ")} did not pass`
             : evaluationReport.summary || "Goal not achieved",
         nodeStatus: finalStatus,
         executionReport,
@@ -363,7 +384,7 @@ export async function pollRun(input: {
     }
     return {
       status: run.status,
-      result: text,
+      result: safeText,
       nodeStatus: finalStatus,
       executionReport,
       evaluationReport: proven,
@@ -376,7 +397,7 @@ export async function pollRun(input: {
     const analysis = extractAnalysis(text);
     return {
       status: run.status,
-      result: text,
+      result: safeText,
       graph: layoutGraph(analysis.graph),
       journeys: analysis.journeys,
       branches,
@@ -384,7 +405,7 @@ export async function pollRun(input: {
   } catch (error) {
     return {
       status: "error",
-      result: text,
+      result: safeText,
       error: error instanceof Error ? error.message : "Failed to parse architecture JSON",
       branches,
     };

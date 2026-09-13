@@ -8,10 +8,11 @@ The workflow is:
 1. A Cursor cloud agent maps the legacy request path and discovers one
    source-backed end-user journey.
 2. The same agent proposes a target architecture and component specifications.
-3. The team reviews and edits the architecture and component specs.
-
-The execution API, run state, and evidence board remain available for external
-orchestration, but the board does not expose an Execute plan control.
+3. The team reviews and edits the architecture and component specs, then clicks
+   **Execute plan** to validate and freeze that exact migration snapshot.
+4. A Cursor cloud agent summarizes the frozen plan, implements it on a
+   `cural/exec-<snapshot-id>` target branch, and proves the result with computer
+   use before Cural can show `Goal achieved`.
 
 ## Artifact model
 
@@ -49,6 +50,23 @@ Set `APP_PASSWORD` to hide the app behind a shared login. Local runs store
 refactor history under `.data/cural`. On Vercel, set `DATABASE_URL` (Neon) and
 `BLOB_READ_WRITE_TOKEN` so graphs, reports, and walkthrough videos persist.
 
+That server-side `DATABASE_URL` is Cural's archive database. The target app's
+`DATABASE_URL` and `OPENAI_API_KEY` are separate secrets and must be configured
+inside the named Cursor cloud environment selected on the setup page. Cural
+never stores or forwards their values.
+
+Execution also checks non-secret metadata for the required target Neon branch:
+
+```dotenv
+CURAL_MODERN_NEON_BRANCH=modern
+CURAL_MODERN_NEON_BRANCH_ID=br-dawn-night-aklu9v95
+CURAL_MODERN_NEON_ENDPOINT_ID=ep-flat-cake-akxv2lu8
+```
+
+These values are injected as expectations only. The execute agent parses the
+target `DATABASE_URL` without printing it and fails if its hostname does not
+match the configured endpoint.
+
 The setup page accepts optional pinned revisions, legacy/target base URLs, and a
 fixture/reset command. Provide them so execute can start both apps and prove
 the goal. If URLs are omitted, the execute agent must start both repositories
@@ -58,8 +76,15 @@ using their documented commands.
 
 Characterization captures what the legacy app does. End-to-end acceptance
 checks exercise frozen user journeys inside a Cursor cloud VM with computer
-use (not Playwright). Differential comparison determines whether normalized,
-user-observable outcomes match.
+use. The two proof questions must be typed and submitted through each visible
+browser UI—legacy first, modern V2 second. Direct HTTP/API calls, scripts, and
+Playwright request APIs do not count. Differential comparison determines
+whether normalized, user-observable outcomes match.
+
+The agent may run at most three complete legacy-to-modern proof cycles. Every
+passed report must include computer-use artifacts, two live OpenAI response
+identifiers, and query evidence for both question/answer rows in the configured
+`modern` Neon branch.
 
 Normalization is explicit and reviewable:
 
@@ -84,8 +109,8 @@ migration succeeded.
 ## Scripted proof
 
 Open [http://localhost:3000/preview](http://localhost:3000/preview), review the
-sample plan, then open Evidence. The scripted preview shows completed goal
-evidence without consuming cloud-agent credits.
+sample plan, and click **Execute plan**. The scripted preview shows the pending
+and completed goal-evidence states without consuming cloud-agent credits.
 
 A concept preview of the fuller diagnosis workflow (clean story diagrams plus
 System / Findings / Evidence) lives at

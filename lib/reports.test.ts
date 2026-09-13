@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { NEON_GOAL_CHECK, OPENAI_GOAL_CHECK } from "@/lib/prompts";
+import {
+  MAX_PROOF_CYCLES,
+  NEON_GOAL_CHECK,
+  OPENAI_GOAL_CHECK,
+  SAMPLE_UI_QUESTIONS,
+} from "@/lib/prompts";
 import {
   extractEvaluationReport,
   extractExecutionReport,
@@ -7,7 +12,48 @@ import {
   failedGoalGates,
   isVideoArtifactPath,
   mergeEvaluationVideos,
+  redactSecrets,
 } from "@/lib/reports";
+
+const completeEvaluation = {
+  status: "passed",
+  summary: "All proof gates passed",
+  testCycles: 2,
+  videos: [{
+    journeyId: "ask-a-question",
+    path: "artifacts/computer-use.mp4",
+    label: "Computer-use walkthrough",
+  }],
+  journeys: [{
+    journeyId: "ask-a-question",
+    status: "passed",
+    checks: [
+      ...SAMPLE_UI_QUESTIONS.map((question) => ({
+        name: question,
+        status: "passed",
+        legacy: `Legacy answer for ${question}`,
+        target: `Modern answer for ${question}`,
+        difference: "Wording differs; diagnosis and actions agree.",
+        evidence: ["artifacts/computer-use.mp4"],
+      })),
+      {
+        name: OPENAI_GOAL_CHECK,
+        status: "passed",
+        evidence: ["response id resp_first", "response id resp_second"],
+      },
+      {
+        name: NEON_GOAL_CHECK,
+        status: "passed",
+        evidence: [
+          "branch modern (br-dawn-night-aklu9v95)",
+          "endpoint ep-flat-cake-akxv2lu8",
+          `row 1: ${SAMPLE_UI_QUESTIONS[0]}`,
+          `row 2: ${SAMPLE_UI_QUESTIONS[1]}`,
+        ],
+      },
+    ],
+  }],
+};
 
 describe("strict agent result protocol", () => {
   it("accepts only exact progress messages", () => {
@@ -90,7 +136,48 @@ CURAL_EVALUATION_REPORT
 \`\`\`
 `);
     expect(report?.status).toBe("failed");
-    expect(failedGoalGates(report!)).toEqual([OPENAI_GOAL_CHECK, NEON_GOAL_CHECK]);
+    expect(failedGoalGates(report!)).toEqual(
+      expect.arrayContaining([OPENAI_GOAL_CHECK, NEON_GOAL_CHECK]),
+    );
+  });
+
+  it("accepts complete UI, OpenAI, and modern Neon proof", () => {
+    const report = extractEvaluationReport(`
+CURAL_EVALUATION_REPORT
+\`\`\`json
+${JSON.stringify(completeEvaluation)}
+\`\`\`
+`);
+    expect(report?.status).toBe("passed");
+    expect(report?.testCycles).toBe(2);
+    expect(failedGoalGates(report!)).toEqual([]);
+  });
+
+  it("rejects out-of-range cycles and missing computer-use artifacts", () => {
+    const invalid = structuredClone(completeEvaluation);
+    invalid.testCycles = MAX_PROOF_CYCLES + 1;
+    invalid.journeys[0].checks[0].evidence = ["called /api/chat directly"];
+    const report = extractEvaluationReport(`
+CURAL_EVALUATION_REPORT
+\`\`\`json
+${JSON.stringify(invalid)}
+\`\`\`
+`);
+    expect(report?.status).toBe("failed");
+    expect(failedGoalGates(report!)).toEqual(
+      expect.arrayContaining([
+        `1-${MAX_PROOF_CYCLES} complete computer-use proof cycles`,
+        `Computer-use proof for "${SAMPLE_UI_QUESTIONS[0]}"`,
+      ]),
+    );
+  });
+
+  it("redacts credentials before report data is exposed", () => {
+    expect(
+      redactSecrets(
+        "DATABASE_URL=postgresql://user:pass@ep-test.neon.tech/db OPENAI_API_KEY=sk-proj-abcdefghijklmnop",
+      ),
+    ).toBe("[REDACTED_ENV_VALUE] [REDACTED_ENV_VALUE]");
   });
 
   it("defaults missing videos to an empty list", () => {

@@ -1,4 +1,10 @@
-import { NEON_GOAL_CHECK, OPENAI_GOAL_CHECK } from "@/lib/prompts";
+import {
+  MAX_PROOF_CYCLES,
+  NEON_GOAL_CHECK,
+  OPENAI_GOAL_CHECK,
+  SAMPLE_UI_QUESTIONS,
+  modernNeonTarget,
+} from "@/lib/prompts";
 import type {
   EvaluationCheck,
   EvaluationReport,
@@ -11,12 +17,91 @@ import type {
 
 export const REQUIRED_GOAL_GATES = [OPENAI_GOAL_CHECK, NEON_GOAL_CHECK] as const;
 
+export function redactSecrets(value: string): string {
+  return value
+    .replace(
+      /\b(?:OPENAI_API_KEY|DATABASE_URL)\s*=\s*[^\s]+/gi,
+      "[REDACTED_ENV_VALUE]",
+    )
+    .replace(
+      /\bpostgres(?:ql)?:\/\/[^\s"'<>]+/gi,
+      "[REDACTED_DATABASE_URL]",
+    )
+    .replace(/\bsk-(?:proj-)?[A-Za-z0-9_-]{16,}\b/g, "[REDACTED_OPENAI_KEY]");
+}
+
+function exactCheck(
+  checks: EvaluationCheck[],
+  name: string,
+): EvaluationCheck | undefined {
+  return checks.find((item) => item.name === name);
+}
+
+function hasComputerUseArtifact(check: EvaluationCheck): boolean {
+  return check.evidence.some((item) =>
+    /\.(mp4|webm|mov|m4v|png|jpe?g|webp)(?:$|[?#])/i.test(item.trim()),
+  );
+}
+
 export function failedGoalGates(report: EvaluationReport): string[] {
   const checks = report.journeys.flatMap((journey) => journey.checks);
-  return REQUIRED_GOAL_GATES.filter((name) => {
-    const check = checks.find((item) => item.name === name);
-    return !check || check.status !== "passed";
-  });
+  const failures: string[] = [];
+
+  if (
+    !Number.isInteger(report.testCycles) ||
+    report.testCycles < 1 ||
+    report.testCycles > MAX_PROOF_CYCLES
+  ) {
+    failures.push(`1-${MAX_PROOF_CYCLES} complete computer-use proof cycles`);
+  }
+
+  for (const question of SAMPLE_UI_QUESTIONS) {
+    const check = exactCheck(checks, question);
+    if (
+      !check ||
+      check.status !== "passed" ||
+      !check.legacy.trim() ||
+      !check.target.trim() ||
+      !hasComputerUseArtifact(check)
+    ) {
+      failures.push(`Computer-use proof for "${question}"`);
+    }
+  }
+
+  const openAiCheck = exactCheck(checks, OPENAI_GOAL_CHECK);
+  const openAiEvidence = openAiCheck?.evidence
+    .map((item) => item.trim())
+    .filter(Boolean) ?? [];
+  if (
+    !openAiCheck ||
+    openAiCheck.status !== "passed" ||
+    openAiEvidence.filter((item) =>
+      /(resp[_-]|chatcmpl-|response\s*id|openai)/i.test(item),
+    ).length < SAMPLE_UI_QUESTIONS.length
+  ) {
+    failures.push(OPENAI_GOAL_CHECK);
+  }
+
+  const neonCheck = exactCheck(checks, NEON_GOAL_CHECK);
+  const neonEvidence = neonCheck?.evidence
+    .map((item) => item.trim())
+    .filter(Boolean) ?? [];
+  const neonText = neonEvidence.join("\n").toLowerCase();
+  const expectedNeon = modernNeonTarget();
+  if (
+    !neonCheck ||
+    neonCheck.status !== "passed" ||
+    !neonText.includes(expectedNeon.branchName.toLowerCase()) ||
+    !neonText.includes(expectedNeon.branchId.toLowerCase()) ||
+    !neonText.includes(expectedNeon.endpointId.toLowerCase()) ||
+    !SAMPLE_UI_QUESTIONS.every((question) =>
+      neonText.includes(question.toLowerCase()),
+    )
+  ) {
+    failures.push(NEON_GOAL_CHECK);
+  }
+
+  return failures;
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -86,7 +171,10 @@ export function extractExecutionReport(text: string): ExecutionReport | null {
     return [{
       id,
       status: status as "done" | "error",
-      summary: typeof value.summary === "string" ? value.summary.trim() : "",
+      summary:
+        typeof value.summary === "string"
+          ? redactSecrets(value.summary.trim())
+          : "",
     }];
   });
   if (!components.length) return null;
@@ -106,13 +194,23 @@ function normalizeCheck(value: unknown): EvaluationCheck | null {
   const status = record?.status;
   if (!record || (status !== "passed" && status !== "failed")) return null;
   return {
-    name: typeof record.name === "string" ? record.name : "Unnamed check",
+    name:
+      typeof record.name === "string"
+        ? redactSecrets(record.name)
+        : "Unnamed check",
     status,
-    legacy: typeof record.legacy === "string" ? record.legacy : "",
-    target: typeof record.target === "string" ? record.target : "",
-    difference: typeof record.difference === "string" ? record.difference : "",
+    legacy:
+      typeof record.legacy === "string" ? redactSecrets(record.legacy) : "",
+    target:
+      typeof record.target === "string" ? redactSecrets(record.target) : "",
+    difference:
+      typeof record.difference === "string"
+        ? redactSecrets(record.difference)
+        : "",
     evidence: Array.isArray(record.evidence)
-      ? record.evidence.filter((item): item is string => typeof item === "string")
+      ? record.evidence
+          .filter((item): item is string => typeof item === "string")
+          .map(redactSecrets)
       : [],
   };
 }
@@ -205,7 +303,15 @@ export function extractEvaluationReport(text: string): EvaluationReport | null {
       journeys.every((journey) => journey.status === "passed")
         ? "passed"
         : "failed",
-    summary: typeof record.summary === "string" ? record.summary : "",
+    summary:
+      typeof record.summary === "string"
+        ? redactSecrets(record.summary)
+        : "",
+    testCycles:
+      typeof record.testCycles === "number" &&
+      Number.isInteger(record.testCycles)
+        ? record.testCycles
+        : 0,
     journeys,
     videos,
   };
