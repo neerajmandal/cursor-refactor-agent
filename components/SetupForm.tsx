@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { nanoid } from "nanoid";
 
@@ -27,24 +27,8 @@ export function SetupForm() {
   const [legacyBaseUrl, setLegacyBaseUrl] = useState("");
   const [targetBaseUrl, setTargetBaseUrl] = useState("");
   const [fixtureCommand, setFixtureCommand] = useState("");
-  const [repos, setRepos] = useState<string[]>([]);
-  const [repoError, setRepoError] = useState("");
   const [busy, setBusy] = useState(false);
   const [submitError, setSubmitError] = useState("");
-
-  useEffect(() => {
-    let cancelled = false;
-    void (async () => {
-      const response = await fetch("/api/repos");
-      const data = (await response.json()) as { repos?: string[]; error?: string };
-      if (cancelled) return;
-      setRepos(data.repos ?? []);
-      setRepoError(data.error ?? "");
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
 
   async function onSubmit(event: React.FormEvent) {
     event.preventDefault();
@@ -162,11 +146,7 @@ export function SetupForm() {
             onRepoChange={setLegacyRepo}
             branch={legacyRef}
             onBranchChange={setLegacyRef}
-            repoHint={
-              repoError
-                ? `${repoError}. Paste a GitHub URL.`
-                : "Connected Cursor repos, or paste a URL."
-            }
+            repoHint="Paste a GitHub URL."
             ready={Boolean(legacyRepo.trim())}
           />
           <div className="hidden items-center self-center justify-center lg:flex" aria-hidden>
@@ -186,12 +166,6 @@ export function SetupForm() {
             ready={Boolean(targetRepo.trim())}
           />
         </div>
-
-        <datalist id="cural-repos">
-          {repos.map((url) => (
-            <option key={url} value={url} />
-          ))}
-        </datalist>
 
         <section className="setup-card setup-card-compact flex flex-col gap-2">
           <div className="flex shrink-0 items-baseline justify-between gap-3">
@@ -266,13 +240,6 @@ export function SetupForm() {
   );
 }
 
-function shortHint(hint: string): string {
-  if (hint.length > 140 || /rate limit/i.test(hint)) {
-    return "Could not list Cursor repos. Paste a GitHub URL.";
-  }
-  return hint;
-}
-
 function SystemCard({
   tone,
   title,
@@ -326,7 +293,6 @@ function SystemCard({
           <input
             value={repo}
             onChange={(event) => onRepoChange(event.target.value)}
-            list="cural-repos"
             required
             placeholder={
               tone === "legacy"
@@ -349,7 +315,7 @@ function SystemCard({
         </label>
       </div>
       <p className="mt-1.5 line-clamp-2 break-all text-[11px] leading-4 text-muted" title={repoHint}>
-        {shortHint(repoHint)}
+        {repoHint}
       </p>
     </section>
   );

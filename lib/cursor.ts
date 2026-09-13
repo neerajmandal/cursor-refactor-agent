@@ -1,4 +1,4 @@
-import { Agent, Cursor, type AgentDefinition, type CloudAgentOptions } from "@cursor/sdk";
+import { Agent, type AgentDefinition, type CloudAgentOptions } from "@cursor/sdk";
 import { executionBranchName } from "@/lib/branch";
 import { executionPlan } from "@/lib/execution";
 import { componentRefs, layoutGraph } from "@/lib/graph";
@@ -56,12 +56,6 @@ export function cloudOptions(envName: string, repos: RepoInput[]): CloudAgentOpt
     env: { type: "cloud" },
     repos: checkedOutRepos,
   };
-}
-
-export async function listRepos(): Promise<string[]> {
-  const apiKey = requireApiKey();
-  const repos = await Cursor.repositories.list({ apiKey });
-  return repos.map((repo) => repo.url).filter(Boolean);
 }
 
 export function customSubagentPromptSizes(
