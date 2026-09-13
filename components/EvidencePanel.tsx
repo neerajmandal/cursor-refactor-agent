@@ -71,18 +71,18 @@ export function EvidencePanel({
         <div className="grid gap-10 lg:grid-cols-[minmax(0,1fr)_320px]">
           <section>
             <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-muted">
-              UI testing
+              Goal
             </p>
             <h2 className="mt-2 font-serif text-4xl tracking-tight">
               {report
                 ? report.status === "passed"
-                  ? "UI testing passed"
-                  : "Behavior differs"
+                  ? "Goal achieved"
+                  : "Goal not met"
                 : "Evidence pending"}
             </h2>
             <p className="mt-3 max-w-2xl text-sm leading-6 text-muted">
               {report?.summary ||
-                "Cural will start both apps, ask the two sample questions in each UI, and compare the answers."}
+                "Execute implements the plan, then uses computer use to ask the two sample questions. Those questions must go through OpenAI and the answers must land in Neon."}
             </p>
 
             {walkthroughs.length ? (
@@ -187,7 +187,7 @@ export function EvidencePanel({
                   </div>
                 </section>
               )) ?? (
-                <p className="py-6 text-sm text-muted">No end-to-end user testing report yet.</p>
+                <p className="py-6 text-sm text-muted">No goal proof yet.</p>
               )}
             </div>
           </section>

@@ -10,12 +10,12 @@ The workflow is:
 2. The same agent proposes a target architecture and component specifications.
 3. The team edits the journey and specs. Clicking Execute validates and freezes
    that exact migration snapshot.
-4. A coordinator delegates each frozen component spec to a named subagent and
-   opens a target-repository pull request.
-5. A separate cloud evaluation run executes the frozen journey against both
-   applications inside a Cursor VM using computer use. Cural shows
-   `Parity proven` only when every required check passes, and posts the VM
-   walkthrough videos on the evidence board.
+4. A coordinator delegates each frozen component spec to a named subagent,
+   implements the plan, then proves the goal in the same run: computer use
+   sends two sample questions, those questions must go through OpenAI, and
+   the answers must persist in Neon. Cural shows `Goal achieved` only when
+   every required check passes, and posts the VM walkthrough videos on the
+   evidence board.
 
 ## Artifact model
 
@@ -24,7 +24,7 @@ The workflow is:
 - **Journey** — actor, preconditions, semantic steps, observable outcomes,
   fixtures, normalization rules, linked components, and source evidence.
 - **Approval snapshot** — immutable copies of both diagrams, all specs, and all
-  journeys used by execution and evaluation.
+  journeys used by execution.
 - **Work item** — per-component attempt, frozen spec, status, summary, and
   dependencies.
 - **Evaluation report** — normalized legacy/target observations and evidence for
@@ -54,9 +54,9 @@ refactor history under `.data/cural`. On Vercel, set `DATABASE_URL` (Neon) and
 `BLOB_READ_WRITE_TOKEN` so graphs, reports, and walkthrough videos persist.
 
 The setup page accepts optional pinned revisions, legacy/target base URLs, and a
-fixture/reset command. Provide them for reproducible parity runs. If URLs are
-omitted, the evaluation agent must start both repositories using their
-documented commands.
+fixture/reset command. Provide them so execute can start both apps and prove
+the goal. If URLs are omitted, the execute agent must start both repositories
+using their documented commands.
 
 ## Behavioral parity contract
 
@@ -80,16 +80,16 @@ Implementation runs must finish with:
 CURAL_EXECUTION_REPORT
 ```
 
-followed by the fenced JSON contract defined in `lib/prompts.ts`. Evaluation
-runs use `CURAL_EVALUATION_REPORT`. Missing or malformed reports are failures;
-a finished cloud run alone never means the migration succeeded.
+followed by the fenced JSON contract defined in `lib/prompts.ts`, then
+`CURAL_EVALUATION_REPORT` for the computer-use proof (OpenAI + Neon). Missing
+or malformed reports are failures; a finished cloud run alone never means the
+migration succeeded.
 
 ## Scripted proof
 
 Open [http://localhost:3000/preview](http://localhost:3000/preview), approve the
-sample plan, and execute it. The scripted preview walks through execution,
-evaluation, and the parity evidence surface without consuming cloud-agent
-credits.
+sample plan, and execute it. The scripted preview walks through execution and
+the goal evidence surface without consuming cloud-agent credits.
 
 A concept preview of the fuller diagnosis workflow (clean story diagrams plus
 System / Findings / Evidence) lives at

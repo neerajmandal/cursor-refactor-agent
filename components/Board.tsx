@@ -193,10 +193,21 @@ export function Board() {
     [],
   );
 
+  const retireEvaluationPhase = useMutation(({ storage }) => {
+    const phase = storage.get("phase");
+    if (phase !== "evaluating" && phase !== "parity_failed") return;
+    storage.set("phase", "aligning");
+    storage.set("evaluationAgentId", "");
+    storage.set("evaluationRunId", "");
+    storage.set("error", "");
+  }, []);
+
   const claimExecute = useMutation(({ storage }, snapshot: MigrationSnapshot) => {
+    const phase = storage.get("phase");
+    const retrying = phase === "done";
     if (
-      storage.get("phase") !== "aligning" ||
-      storage.get("executeRunId")
+      (phase !== "aligning" && !retrying) ||
+      (phase === "aligning" && storage.get("executeRunId"))
     ) {
       return null;
     }
@@ -245,21 +256,6 @@ export function Board() {
     }]);
     storage.set("error", "");
     return runSnapshot;
-  }, []);
-
-  const claimEvaluation = useMutation(({ storage }) => {
-    if (
-      storage.get("phase") !== "evaluating" ||
-      storage.get("evaluationRunId") ||
-      !storage.get("executionSnapshot")
-    ) {
-      return null;
-    }
-    storage.set("evaluationAgentId", "pending");
-    storage.set("evaluationRunId", "pending");
-    storage.set("evaluationVideos", []);
-    storage.set("error", "");
-    return storage.get("executionSnapshot");
   }, []);
 
   const attachExecutionRun = useMutation(
@@ -506,6 +502,8 @@ export function Board() {
           nodeStatus: data.nodeStatus ?? nodeStatus,
           workItems: nextItems,
           executionReport: data.executionReport ?? undefined,
+          evaluationReport: data.evaluationReport ?? undefined,
+          evaluationVideos: data.evaluationVideos ?? undefined,
           runBranches: mergeBranches(runBranches, data.branches),
           error: data.status === "running" ? "" : undefined,
         });
@@ -517,34 +515,31 @@ export function Board() {
           !response.ok ||
           data.status === "error" ||
           data.status === "cancelled" ||
-          data.executionReport?.status !== "passed"
+          data.executionReport?.status !== "passed" ||
+          data.evaluationReport?.status !== "passed"
         ) {
           patch({
             phase: "aligning",
-            executeAgentId: "",
             executeRunId: "",
-            error: data.error || "Component execution did not complete",
+            error: data.error || "The goal was not achieved",
           });
           return;
         }
         const allDone = Object.values(nextItems).every(
           (item) => item.status === "done",
         );
-        patch({
-          phase: "evaluating",
-          evaluationAgentId: "",
-          evaluationRunId: "",
-          error: "",
-        });
         if (!allDone) {
           patch({
             phase: "aligning",
-            executeAgentId: "",
             executeRunId: "",
             error: "Some components still need an execution attempt",
           });
           return;
         }
+        patch({
+          phase: "done",
+          error: "",
+        });
         setView("evidence");
       } catch (caught) {
         if (!cancelled) {
@@ -573,132 +568,23 @@ export function Board() {
     workItems,
   ]);
 
-  const startEvaluation = useCallback(async () => {
-    const snapshot = claimEvaluation();
-    if (!snapshot) return;
-    try {
-      const response = await fetch("/api/evaluate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          envName,
-          legacyRepo,
-          legacyRef,
-          targetRepo,
-          targetRef: snapshot.executionBranch || targetRef,
-          legacyBaseUrl,
-          targetBaseUrl,
-          fixtureCommand,
-          extraPrompt,
-          snapshot,
-          requestKey: `${room.id}:evaluate:${snapshot.id}`,
-        }),
-      });
-      const data = (await response.json()) as AnalyzeResponse;
-      if (!response.ok || !data.agentId || !data.runId) {
-        throw new Error(data.error || "Failed to start end-to-end user testing");
-      }
-      patch({ evaluationAgentId: data.agentId, evaluationRunId: data.runId });
-    } catch (caught) {
-      patch({
-        evaluationAgentId: "",
-        evaluationRunId: "",
-        phase: "parity_failed",
-        error: caught instanceof Error ? caught.message : "Evaluation failed",
-      });
-    }
-  }, [
-    claimEvaluation,
-    envName,
-    extraPrompt,
-    fixtureCommand,
-    legacyBaseUrl,
-    legacyRepo,
-    legacyRef,
-    patch,
-    room.id,
-    targetBaseUrl,
-    targetRef,
-    targetRepo,
-  ]);
-
   useEffect(() => {
-    if (phase === "evaluating" && !evaluationRunId && !error) {
-      void startEvaluation();
+    if (phase === "evaluating" || phase === "parity_failed") {
+      retireEvaluationPhase();
     }
-  }, [error, evaluationRunId, phase, startEvaluation]);
-
-  useEffect(() => {
-    if (
-      phase !== "evaluating" ||
-      !isCloudAgentId(evaluationAgentId) ||
-      !evaluationRunId ||
-      evaluationRunId === "pending"
-    ) {
-      return;
-    }
-    let cancelled = false;
-    let inFlight = false;
-
-    async function poll() {
-      if (inFlight) return;
-      inFlight = true;
-      try {
-        const response = await fetch(
-          `/api/agents/${evaluationAgentId}?kind=evaluate&runId=${encodeURIComponent(evaluationRunId)}`,
-        );
-        const data = (await response.json()) as PollResponse;
-        if (cancelled) return;
-        if (data.status === "running") return;
-        const report = data.evaluationReport ?? null;
-        patch({
-          evaluationReport: report,
-          evaluationVideos: data.evaluationVideos ?? report?.videos ?? [],
-          runBranches: mergeBranches(runBranches, data.branches),
-          phase:
-            response.ok && data.status === "finished" && report?.status === "passed"
-              ? "done"
-              : "parity_failed",
-          error:
-            response.ok && report
-              ? report.status === "passed"
-                ? ""
-                : report.summary || "Behavior differs from legacy"
-              : data.error || "UI testing failed",
-        });
-      } catch (caught) {
-        if (!cancelled) {
-          patch({
-            phase: "parity_failed",
-            error: caught instanceof Error ? caught.message : "Poll failed",
-          });
-        }
-      } finally {
-        inFlight = false;
-      }
-    }
-
-    void poll();
-    const interval = window.setInterval(() => void poll(), 3000);
-    return () => {
-      cancelled = true;
-      window.clearInterval(interval);
-    };
-  }, [
-    evaluationAgentId,
-    evaluationRunId,
-    patch,
-    phase,
-    runBranches,
-  ]);
+  }, [phase, retireEvaluationPhase]);
 
   useEffect(() => {
     if (!legacyRepo) return;
+    const evidenceRunId = executeRunId;
     const shouldIngest =
-      (phase === "done" || phase === "parity_failed") &&
+      phase === "done" &&
       Boolean(evaluationReport || evaluationVideos.length) &&
-      ingestedEvaluation.current !== evaluationRunId;
-    const ingestArtifacts = shouldIngest && Boolean(evaluationRunId);
+      ingestedEvaluation.current !== evidenceRunId;
+    const ingestArtifacts =
+      shouldIngest &&
+      Boolean(evidenceRunId) &&
+      evidenceRunId !== "pending";
     const timer = window.setTimeout(() => {
       void persistBoardArchiveClient(
         room.id,
@@ -733,7 +619,7 @@ export function Board() {
         },
         { ingestArtifacts },
       ).then(() => {
-        if (ingestArtifacts) ingestedEvaluation.current = evaluationRunId;
+        if (ingestArtifacts) ingestedEvaluation.current = evidenceRunId;
       });
     }, 500);
     return () => window.clearTimeout(timer);
@@ -803,6 +689,9 @@ export function Board() {
           prompt,
           extraPrompt,
           snapshot: runSnapshot,
+          legacyBaseUrl,
+          targetBaseUrl,
+          fixtureCommand,
           requestKey: `${room.id}:execute:${runSnapshot.id}`,
         }),
       });
@@ -823,19 +712,6 @@ export function Board() {
     }
   }
 
-  function retryEvaluation() {
-    if (!executionSnapshot) return;
-    patch({
-      phase: "evaluating",
-      evaluationAgentId: "",
-      evaluationRunId: "",
-      evaluationReport: null,
-      evaluationVideos: [],
-      error: "",
-    });
-    setView("evidence");
-  }
-
   function retryAnalysis() {
     patch({
       analyzeRunId: "",
@@ -851,8 +727,7 @@ export function Board() {
     if (
       phase === "analyzing_current" ||
       phase === "analyzing_target" ||
-      phase === "executing" ||
-      phase === "evaluating"
+      phase === "executing"
     ) {
       return;
     }
@@ -889,8 +764,7 @@ export function Board() {
   const busy =
     phase === "analyzing_current" ||
     phase === "analyzing_target" ||
-    phase === "executing" ||
-    phase === "evaluating";
+    phase === "executing";
   const locked = busy || phase === "done";
 
   return (
@@ -932,19 +806,19 @@ export function Board() {
                 Execute plan <span aria-hidden>→</span>
               </button>
             </div>
-          ) : (phase === "done" || phase === "parity_failed") && executionSnapshot ? (
+          ) : phase === "done" && executionSnapshot ? (
             <div className="flex items-center gap-2">
               <RunNotesComposer
                 value={extraPrompt}
                 onChange={(value) => patch({ extraPrompt: value })}
-                appliesTo="evaluate"
+                appliesTo="execute"
               />
               <button
                 type="button"
-                onClick={retryEvaluation}
+                onClick={() => void execute()}
                 className="inline-flex items-center gap-2 rounded-md border border-line bg-white px-3.5 py-2 text-[13px] font-medium text-ink transition-colors hover:bg-paper-2"
               >
-                Rerun UI testing
+                Execute again
               </button>
             </div>
           ) : null
@@ -955,10 +829,10 @@ export function Board() {
               Regenerate
             </BoardOverflowItem>
             <BoardOverflowItem
-              onClick={retryEvaluation}
+              onClick={() => void execute()}
               disabled={!executionSnapshot || busy}
             >
-              Rerun UI testing
+              Execute again
             </BoardOverflowItem>
             <BoardOverflowItem onClick={() => void copyLink()}>
               {copied ? "Copied" : "Copy link"}
@@ -976,11 +850,6 @@ export function Board() {
                 <AgentIdLink label="Execute" id={executeAgentId} />
               </div>
             ) : null}
-            {evaluationAgentId ? (
-              <div className="border-t border-line px-3 py-2">
-                <AgentIdLink label="UI testing" id={evaluationAgentId} />
-              </div>
-            ) : null}
           </>
         }
       />
@@ -994,7 +863,7 @@ export function Board() {
           workItems={workItems}
           report={evaluationReport}
           videos={evaluationVideos}
-          evaluationAgentId={evaluationAgentId}
+          evaluationAgentId={executeAgentId}
           branches={runBranches}
           journeys={journeys}
         />
@@ -1012,13 +881,8 @@ export function Board() {
             },
             {
               label: "Execute",
-              detail: "Implements the frozen target specs on the orchestrator branch.",
+              detail: "Implements the frozen specs and keeps going until the user-visible goal holds.",
               id: executeAgentId,
-            },
-            {
-              label: "UI testing",
-              detail: "Runs both apps in the browser, asks the sample questions, and compares answers.",
-              id: evaluationAgentId,
             },
           ]}
         />

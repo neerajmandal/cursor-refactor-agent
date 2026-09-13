@@ -12,7 +12,7 @@ export function RunNotesComposer({
 }: {
   value: string;
   onChange: (value: string) => void;
-  appliesTo: "execute" | "evaluate";
+  appliesTo?: "execute";
   disabled?: boolean;
 }) {
   const [open, setOpen] = useState(false);
@@ -60,9 +60,7 @@ export function RunNotesComposer({
             Extra instructions
           </label>
           <p className="mt-1 text-[11px] leading-4 text-muted">
-            {appliesTo === "execute"
-              ? "Applies to this execute run. Frozen specs and the assigned branch stay in force."
-              : "Applies to this UI test run. The sample questions and assigned branch stay in force."}
+            Applies to this execute run. Frozen specs, the assigned branch, and the goal stay in force.
           </p>
           <textarea
             id="run-notes-input"
@@ -72,9 +70,7 @@ export function RunNotesComposer({
             disabled={disabled}
             onChange={(event) => onChange(event.target.value)}
             placeholder={
-              appliesTo === "execute"
-                ? "Skip payments; use the stub. Do not open a PR yet."
-                : "Legacy is on :3001 today. Reset with npm run seed."
+              "Skip payments; use the stub. Legacy may be on :3001. Do not open a PR until the goal holds."
             }
             className="mt-2 min-h-[6rem] w-full resize-none rounded-md border border-line bg-paper px-3 py-2 text-[13px] leading-5 outline-none focus:border-ink"
           />

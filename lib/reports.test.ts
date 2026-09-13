@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
+import { NEON_GOAL_CHECK, OPENAI_GOAL_CHECK } from "@/lib/prompts";
 import {
   extractEvaluationReport,
   extractExecutionReport,
   extractProgress,
+  failedGoalGates,
   isVideoArtifactPath,
   mergeEvaluationVideos,
 } from "@/lib/reports";
@@ -63,6 +65,32 @@ CURAL_EVALUATION_REPORT
       path: "artifacts/checkout.mp4",
       label: "Checkout walkthrough",
     }]);
+  });
+
+  it("refuses passed reports that skip the OpenAI or Neon gates", () => {
+    const report = extractEvaluationReport(`
+CURAL_EVALUATION_REPORT
+\`\`\`json
+{
+  "status":"passed",
+  "summary":"looks fine on screen",
+  "journeys":[{
+    "journeyId":"checkout",
+    "status":"passed",
+    "checks":[{
+      "name":"Order total",
+      "status":"passed",
+      "legacy":"10.00",
+      "target":"10.00",
+      "difference":"",
+      "evidence":[]
+    }]
+  }]
+}
+\`\`\`
+`);
+    expect(report?.status).toBe("failed");
+    expect(failedGoalGates(report!)).toEqual([OPENAI_GOAL_CHECK, NEON_GOAL_CHECK]);
   });
 
   it("defaults missing videos to an empty list", () => {

@@ -24,6 +24,9 @@ export const SAMPLE_UI_QUESTIONS = [
 export const MODERN_UI_RULE =
   "Copy the legacy app UI into the modern app so a user can ask questions the same way. Keep the same screens, input, and submit flow. Add a visible V2 label in the modern UI (title or header) so testers can tell the two apps apart.";
 
+export const OPENAI_GOAL_CHECK = "Questions sent via OpenAI";
+export const NEON_GOAL_CHECK = "Answers persisted in Neon";
+
 const TREE_DIAGRAM_RULES = `Diagram rules — a talk slide, not an inventory:
 - 5 to 7 boxes on 2 to 4 ranks. Top-to-bottom tree only.
 - Exactly one root (HTTP or UI entrypoint). Every other node has exactly one parent — one incoming edge, no extras, no cycles, no back-edges.
@@ -151,6 +154,10 @@ export function executePrompt(input: {
   extraPrompt?: string;
   components: GraphNode[];
   refs?: ComponentRef[];
+  snapshot?: MigrationSnapshot;
+  legacyBaseUrl?: string;
+  targetBaseUrl?: string;
+  fixtureCommand?: string;
 }): string {
   const refs = input.refs ?? input.components.map((node) => ({
     id: node.id,
@@ -172,7 +179,26 @@ ${spec || "No execution spec was provided."}`;
     .join("\n");
 
   const baseRef = input.targetRef?.trim() || "the default/main branch";
-  return `You are the parent migration agent. Delegate. Do not implement every component yourself.
+  const goal = goalSection({
+    legacyRepo: input.legacyRepo,
+    legacyRef: input.legacyRef,
+    targetRepo: input.targetRepo,
+    targetBranch: input.executionBranch,
+    legacyBaseUrl: input.legacyBaseUrl ?? "",
+    targetBaseUrl: input.targetBaseUrl ?? "",
+    fixtureCommand: input.fixtureCommand ?? "",
+    snapshot: input.snapshot,
+    journeys: input.snapshot?.journeys,
+  });
+  return `You are the parent migration agent. Delegate implementation. Do not stop after writing code.
+
+Execute the frozen plan first. Only after the plan is in place, prove it with computer use: send the two sample questions in the UI.
+
+Hard stop — loop until both of these are true. Do not finish, do not open a PR, and do not emit passed reports until they are:
+- The two questions went through OpenAI (live API).
+- The two answers landed in Neon (queryable rows, not just the screen).
+
+If either is missing, fix the modern app and run the computer-use test again. Keep that loop going. Do not hand off to a later testing step.
 
 Legacy reference repo: ${input.legacyRepo}${input.legacyRef ? ` at ${input.legacyRef}` : " on its default/main branch"} (read-only).
 Write ALL new code in the empty target repo: ${input.targetRepo}
@@ -183,8 +209,10 @@ Checkout the target repo from ${baseRef}, then create or switch to ${input.execu
 Team migration intent:
 ${input.prompt}
 
-UI (required for later testing):
+UI (part of the goal):
 ${MODERN_UI_RULE}
+
+${goal}
 
 You have named subagents, one per target component. Spawn the matching subagent (use the slug) for each component and let it implement that component in the target repo. Coordinate shared contracts, order work if there are dependencies, and keep the target repo consistent.
 
@@ -196,9 +224,18 @@ CURAL_STATUS {"id":"<id>","status":"running"}
 CURAL_STATUS {"id":"<id>","status":"done"}
 CURAL_STATUS {"id":"<id>","status":"error"}
 
-When a subagent finishes, review its diff briefly, then continue. Run the target repository's relevant checks. Open a PR on the target repo from ${input.executionBranch} when the migration slice is in place.
+Work loop (required):
+1. Execute the frozen plan. Spawn subagents for remaining components, review each diff, and keep the target repo consistent.
+2. Run the target repository's relevant checks.
+3. Then test with computer use (VM browser / computer use only). Do not use Playwright, Cypress, or Selenium. Do not compare source code. Start both apps and send the two sample questions as specified in the goal.
+4. Gate A — OpenAI: prove both questions were sent to the live OpenAI API. If not, you are not done.
+5. Gate B — Neon: prove both answers were written to the modern app's Neon database. If not, you are not done.
+6. If Gate A or Gate B failed (or the UI did not show answers): fix the modern app on ${input.executionBranch} and go back to step 3. Do not stop. Do not mark passed.
+7. Repeat until Gate A and Gate B both pass and every component is done.
 
-Your final response MUST end with this marker and one fenced JSON object:
+Open a PR on the target repo from ${input.executionBranch} only after Gate A and Gate B both pass.
+
+Your final response MUST end with these two markers and fenced JSON objects, in this order:
 CURAL_EXECUTION_REPORT
 \`\`\`json
 {
@@ -208,7 +245,11 @@ CURAL_EXECUTION_REPORT
   ]
 }
 \`\`\`
-Include every component exactly once. Use passed only when every component is done and target checks pass.${operatorNotes(input.extraPrompt)}`;
+CURAL_EVALUATION_REPORT
+\`\`\`json
+${goalReportShape(input.snapshot)}
+\`\`\`
+Include every component exactly once. Use passed on both reports only when every component is done, target checks pass, Gate A (OpenAI) passed, and Gate B (Neon) passed. If either gate failed, status must be failed and you must keep looping instead of stopping.${operatorNotes(input.extraPrompt)}`;
 }
 
 export function subagentPrompt(node: GraphNode, input: {
@@ -236,8 +277,9 @@ ${branchLine}
 Team intent:
 ${input.prompt}
 
-UI (required for later testing):
+UI (part of the parent goal — keep going until it holds):
 ${MODERN_UI_RULE}
+Questions must be sent through OpenAI. Answers must be persisted in the modern app's Neon database. Do not stub either.
 
 Spec (source of truth, aligned by humans before execution):
 ${specText || "No spec provided. Infer a minimal, correct implementation from the legacy repo."}
@@ -254,66 +296,87 @@ Operator notes for this run (do not override frozen specs, journey ids, the assi
 ${notes}`;
 }
 
-function journeyIds(snapshot: MigrationSnapshot): string[] {
-  return snapshot.journeys
+function journeyIds(snapshot?: MigrationSnapshot, journeys?: Journey[]): string[] {
+  const source = snapshot?.journeys ?? journeys ?? [];
+  return source
     .filter((journey) => journey.required)
     .map((journey) => journey.id);
 }
 
-export function evaluationPrompt(input: {
+function goalSection(input: {
   legacyRepo: string;
   legacyRef?: string;
   targetRepo: string;
-  targetRef?: string;
+  targetBranch?: string;
   legacyBaseUrl: string;
   targetBaseUrl: string;
   fixtureCommand: string;
-  extraPrompt?: string;
-  snapshot: MigrationSnapshot;
+  snapshot?: MigrationSnapshot;
+  journeys?: Journey[];
 }): string {
-  const targetBranch =
-    input.snapshot.executionBranch?.trim() || input.targetRef?.trim() || "";
-  const ids = journeyIds(input.snapshot).join(", ");
+  const targetBranch = input.targetBranch?.trim() || "";
+  const ids = journeyIds(input.snapshot, input.journeys);
   const questions = SAMPLE_UI_QUESTIONS.map(
     (question, index) => `${index + 1}. ${question}`,
   ).join("\n");
+  const frozenJourneys = (input.snapshot?.journeys ?? input.journeys ?? [])
+    .filter((journey) => journey.required);
+  return `Goal (keep working until this is true):
+1. The frozen plan is implemented in the modern app.
+2. Computer use can ask the two sample questions in the UI.
+3. The modern app sends those questions through OpenAI.
+4. The modern app persists the answers in Neon.
 
-  return `Do UI testing. Start both apps, open each in the browser, ask the same two questions, and compare what the user sees. Use the VM browser / computer use. Do not use Playwright, Cypress, or Selenium. Do not compare source code.
+Frozen journeys:
+${frozenJourneys.length ? JSON.stringify(frozenJourneys, null, 2) : "Use the required snapshot journey."}
 
 Legacy app: ${input.legacyRepo}${input.legacyRef ? ` at ${input.legacyRef}` : " on its default/main branch"}
 Modern app: ${input.targetRepo}${targetBranch ? ` at ${targetBranch}` : ""}
-${targetBranch ? `Run the modern app from branch ${targetBranch}. Do not test main.` : ""}
+${targetBranch ? `Run the modern app from branch ${targetBranch}. Do not verify main.` : ""}
 Legacy URL: ${input.legacyBaseUrl || "Start it from the repo README"}
 Modern URL: ${input.targetBaseUrl || "Start it from the repo README"}
 Reset if needed: ${input.fixtureCommand || "Use the repo's seed/reset command"}
 
 The modern app should look like the legacy UI and show V2 in the header. Use that to tell the apps apart.
 
+Computer-use test (required after the plan is implemented):
 Ask these two questions in the UI of the legacy app, then again in the modern (V2) app:
 ${questions}
 
-For each question, type it, submit, wait for the answer, and write down the visible result (answer text, error, empty state). Pass only when both apps show the same user-visible meaning. Fail if an app will not start, V2 is missing from the modern UI, or an answer cannot be seen.
+For each question, type it, submit, wait for the answer, and write down the visible result (answer text, error, empty state).
 
-Your final response MUST end with this marker and one fenced JSON object:
-CURAL_EVALUATION_REPORT
-\`\`\`json
-{
+OpenAI (required for the modern app):
+Those two questions must be sent to OpenAI — a live chat/completions (or Responses) call with the operator question in the request. Do not accept a stub, fixture, canned string, or local model. Prove it with runtime evidence: server logs showing the OpenAI client call, or an outbound request to api.openai.com, plus a provider response id. Fail if the screen shows an answer but OpenAI was not called.
+
+Neon (required for the modern app):
+After each answer is visible, that question and answer must be persisted in the modern app's Neon Postgres database (conversation/message/history rows). Use the target repo's DATABASE_URL / Neon config, not Cural's archive database. Prove it by querying Neon (or the app's own history API backed by Neon) and finding both questions with their answers. Fail if answers exist only on screen or only in memory.
+
+Loop rule: if OpenAI was not used or Neon has no matching rows, the goal is not achieved. Fix the modern app and send the two questions again. Keep looping until both gates pass. Visible answers alone are not enough.
+
+The goal is achieved only when both apps show the same user-visible meaning AND Gate A (OpenAI) AND Gate B (Neon) pass. The goal is not achieved if an app will not start, V2 is missing, an answer cannot be seen, OpenAI was skipped, or Neon has no matching rows.
+
+Use these journey ids in the evaluation report: ${ids.join(", ") || "the required snapshot journey id"}.`;
+}
+
+function goalReportShape(snapshot?: MigrationSnapshot): string {
+  const firstId = journeyIds(snapshot)[0] || "exact-journey-id";
+  return `{
   "status": "passed|failed",
   "summary": "Short comparison of the two UI answers",
   "videos": [
     {
-      "journeyId": "exact-journey-id",
+      "journeyId": "${firstId}",
       "path": "artifacts/ui-walkthrough.mp4",
       "label": "Legacy and modern UI walkthrough"
     }
   ],
   "journeys": [
     {
-      "journeyId": "exact-journey-id",
+      "journeyId": "${firstId}",
       "status": "passed|failed",
       "checks": [
         {
-          "name": "What does HelloDrive fault code FO48 mean?",
+          "name": "${SAMPLE_UI_QUESTIONS[0]}",
           "status": "passed|failed",
           "legacy": "What the legacy UI showed",
           "target": "What the modern UI showed",
@@ -321,17 +384,31 @@ CURAL_EVALUATION_REPORT
           "evidence": ["screenshot or video path"]
         },
         {
-          "name": "How do I clear a HelloDrive FO48 fault and get the line running again?",
+          "name": "${SAMPLE_UI_QUESTIONS[1]}",
           "status": "passed|failed",
           "legacy": "What the legacy UI showed",
           "target": "What the modern UI showed",
           "difference": "Empty when equal, otherwise the mismatch",
           "evidence": ["screenshot or video path"]
+        },
+        {
+          "name": "${OPENAI_GOAL_CHECK}",
+          "status": "passed|failed",
+          "legacy": "How the legacy path generated the answer",
+          "target": "OpenAI request/response evidence for both questions",
+          "difference": "Empty when OpenAI was used for both",
+          "evidence": ["log line, request id, or network trace"]
+        },
+        {
+          "name": "${NEON_GOAL_CHECK}",
+          "status": "passed|failed",
+          "legacy": "How the legacy path stored the turn",
+          "target": "Neon rows for both questions and answers",
+          "difference": "Empty when both turns are in Neon",
+          "evidence": ["query result or history API payload"]
         }
       ]
     }
   ]
-}
-\`\`\`
-Use these journey ids: ${ids || "the required snapshot journey id"}. Include both sample questions as checks. Use passed only when every check passed.${operatorNotes(input.extraPrompt)}`;
+}`;
 }

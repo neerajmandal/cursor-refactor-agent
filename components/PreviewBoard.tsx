@@ -91,7 +91,6 @@ export function PreviewBoard() {
   function executeProof() {
     setPhase("executing");
     setView("evidence");
-    window.setTimeout(() => setPhase("evaluating"), 250);
     window.setTimeout(() => setPhase("done"), 650);
   }
 
@@ -103,7 +102,7 @@ export function PreviewBoard() {
         status={
           phase !== "aligning" ? (
             <span className="text-[12px] text-muted">
-              {phase === "done" ? "Required journey passed" : "Working…"}
+              {phase === "done" ? "Goal achieved" : "Working toward the goal…"}
             </span>
           ) : null
         }
@@ -141,13 +140,8 @@ export function PreviewBoard() {
             },
             {
               label: "Execute",
-              detail: "Implements the frozen target specs.",
+              detail: "Implements the frozen specs and keeps going until the goal holds.",
               id: "bc-demo-execute",
-            },
-            {
-              label: "UI testing",
-              detail: "Walks both apps and compares outcomes.",
-              id: "bc-demo-evaluate",
             },
           ]}
         />
@@ -156,7 +150,7 @@ export function PreviewBoard() {
           workItems={demoItems(phase === "done" ? "done" : running ? "running" : "pending")}
           report={phase === "done" ? PASSED_REPORT : null}
           videos={phase === "done" ? PASSED_REPORT.videos : []}
-          evaluationAgentId="bc-demo-evaluate"
+          evaluationAgentId="bc-demo-execute"
           branches={[{
             repoUrl: "https://github.com/acme/target",
             branch: "cursor/migration-proof",

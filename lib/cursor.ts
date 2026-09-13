@@ -1,10 +1,9 @@
 import { Agent, Cursor, type AgentDefinition, type CloudAgentOptions } from "@cursor/sdk";
-import { evaluationTargetRef, executionBranchName } from "@/lib/branch";
+import { executionBranchName } from "@/lib/branch";
 import { componentRefs, layoutGraph } from "@/lib/graph";
 import { extractAnalysis } from "@/lib/journey";
 import {
   asIsPrompt,
-  evaluationPrompt,
   executePrompt,
   subagentPrompt,
   toBePrompt,
@@ -13,6 +12,7 @@ import {
   extractEvaluationReport,
   extractExecutionReport,
   extractProgress,
+  failedGoalGates,
   isVideoArtifactPath,
   mergeEvaluationVideos,
   runBranches,
@@ -142,6 +142,9 @@ export async function startExecute(input: {
   prompt: string;
   extraPrompt?: string;
   snapshot: MigrationSnapshot;
+  legacyBaseUrl?: string;
+  targetBaseUrl?: string;
+  fixtureCommand?: string;
   requestKey?: string;
 }): Promise<{ agentId: string; runId: string }> {
   const apiKey = requireApiKey();
@@ -164,6 +167,10 @@ export async function startExecute(input: {
     { url: input.legacyRepo, startingRef: input.legacyRef || undefined },
     { url: input.targetRepo, startingRef: input.targetRef || undefined },
   ];
+  const envVars = evaluationEnvVars({
+    legacyBaseUrl: input.legacyBaseUrl ?? "",
+    targetBaseUrl: input.targetBaseUrl ?? "",
+  });
   const agent = await Agent.create({
     apiKey,
     model: MODEL,
@@ -175,61 +182,22 @@ export async function startExecute(input: {
         workflow: "migration-execute",
         snapshotId: input.snapshot.id,
       },
+      ...(Object.keys(envVars).length ? { envVars } : {}),
     },
     agents,
   });
 
   try {
     const run = await agent.send(
-      executePrompt({ ...input, components, refs, executionBranch }),
+      executePrompt({
+        ...input,
+        components,
+        refs,
+        executionBranch,
+        snapshot: input.snapshot,
+      }),
       { idempotencyKey: input.requestKey },
     );
-    return { agentId: agent.agentId, runId: run.id };
-  } finally {
-    agent.close();
-  }
-}
-
-export async function startEvaluation(input: {
-  envName: string;
-  legacyRepo: string;
-  legacyRef: string;
-  targetRepo: string;
-  targetRef: string;
-  legacyBaseUrl: string;
-  targetBaseUrl: string;
-  fixtureCommand: string;
-  extraPrompt?: string;
-  snapshot: MigrationSnapshot;
-  requestKey?: string;
-}): Promise<{ agentId: string; runId: string }> {
-  const apiKey = requireApiKey();
-  const envVars = evaluationEnvVars(input);
-  const agent = await Agent.create({
-    apiKey,
-    model: MODEL,
-    name: "Cural UI testing",
-    cloud: {
-      ...cloudOptions(input.envName, [
-        { url: input.legacyRepo, startingRef: input.legacyRef || undefined },
-        {
-          url: input.targetRepo,
-          startingRef:
-            evaluationTargetRef(input.snapshot, input.targetRef) || undefined,
-        },
-      ]),
-      skipReviewerRequest: true,
-      metadata: {
-        workflow: "e2e-user-testing",
-        snapshotId: input.snapshot.id,
-      },
-      ...(Object.keys(envVars).length ? { envVars } : {}),
-    },
-  });
-  try {
-    const run = await agent.send(evaluationPrompt(input), {
-      idempotencyKey: input.requestKey,
-    });
     return { agentId: agent.agentId, runId: run.id };
   } finally {
     agent.close();
@@ -290,7 +258,7 @@ export async function downloadAgentArtifact(
 export async function pollRun(input: {
   agentId: string;
   runId: string;
-  kind?: "analyze" | "execute" | "evaluate";
+  kind?: "analyze" | "execute";
   componentIds?: string[];
   components?: { id: string; label: string }[];
 }): Promise<{
@@ -359,6 +327,16 @@ export async function pollRun(input: {
         return [ref.id, reported?.status === "done" ? "done" : "error"];
       }) ?? [],
     ) as Record<string, NodeStatus>;
+    const evaluationReport = extractEvaluationReport(text);
+    const listed = evaluationReport
+      ? await listVideoArtifacts(input.agentId)
+      : [];
+    const evaluationVideos = evaluationReport
+      ? mergeEvaluationVideos(evaluationReport.videos, listed)
+      : [];
+    const proven = evaluationReport
+      ? { ...evaluationReport, videos: evaluationVideos }
+      : undefined;
     if (
       executionReport.status !== "passed" ||
       Object.values(finalStatus).some((status) => status === "error")
@@ -369,6 +347,34 @@ export async function pollRun(input: {
         error: "One or more components did not complete successfully",
         nodeStatus: finalStatus,
         executionReport,
+        evaluationReport: proven,
+        evaluationVideos,
+        branches,
+      };
+    }
+    if (!evaluationReport) {
+      return {
+        status: "error",
+        result: text,
+        error: "Execution finished without proving the goal (missing CURAL_EVALUATION_REPORT)",
+        nodeStatus: finalStatus,
+        executionReport,
+        branches,
+      };
+    }
+    const missingGates = failedGoalGates(evaluationReport);
+    if (evaluationReport.status !== "passed" || missingGates.length) {
+      return {
+        status: "error",
+        result: text,
+        error:
+          missingGates.length
+            ? `Keep looping: ${missingGates.join(" and ")} did not pass`
+            : evaluationReport.summary || "Goal not achieved",
+        nodeStatus: finalStatus,
+        executionReport,
+        evaluationReport: proven,
+        evaluationVideos,
         branches,
       };
     }
@@ -377,29 +383,7 @@ export async function pollRun(input: {
       result: text,
       nodeStatus: finalStatus,
       executionReport,
-      branches,
-    };
-  }
-
-  if (input.kind === "evaluate") {
-    const evaluationReport = extractEvaluationReport(text);
-    if (!evaluationReport) {
-      return {
-        status: "error",
-        result: text,
-        error: "Evaluation finished without a valid CURAL_EVALUATION_REPORT",
-        branches,
-      };
-    }
-    const listed = await listVideoArtifacts(input.agentId);
-    const evaluationVideos = mergeEvaluationVideos(
-      evaluationReport.videos,
-      listed,
-    );
-    return {
-      status: run.status,
-      result: text,
-      evaluationReport: { ...evaluationReport, videos: evaluationVideos },
+      evaluationReport: proven,
       evaluationVideos,
       branches,
     };

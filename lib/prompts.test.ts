@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
   SAMPLE_UI_QUESTIONS,
-  evaluationPrompt,
   executePrompt,
   operatorNotes,
   subagentPrompt,
@@ -30,10 +29,32 @@ const migration = {
 
 describe("execution prompts", () => {
   it("includes the frozen component spec in both parent and subagent prompts", () => {
+    const snapshot = {
+      id: "snap-1",
+      createdAt: "2026-01-01T00:00:00.000Z",
+      executionBranch: "cural/exec-snapshot-1",
+      architectureVersion: 1,
+      asIs: { nodes: [], edges: [] },
+      toBe: { nodes: [], edges: [] },
+      journeys: [{
+        id: "ask-a-question",
+        title: "Ask a question",
+        actor: "Customer",
+        preconditions: [],
+        steps: ["Ask"],
+        outcomes: ["Answer"],
+        fixtures: [],
+        normalizationRules: [],
+        componentIds: [],
+        sourceEvidence: [],
+        required: true,
+      }],
+    };
     const parent = executePrompt({
       ...migration,
       executionBranch: "cural/exec-snapshot-1",
       components: [component],
+      snapshot,
     });
     const child = subagentPrompt(component, {
       ...migration,
@@ -48,6 +69,18 @@ describe("execution prompts", () => {
       expect(prompt).toContain("Copy the legacy app UI");
       expect(prompt).toContain("V2");
       expect(prompt).not.toContain("Operator notes for this run");
+    }
+    expect(parent).toContain("Execute the frozen plan first");
+    expect(parent).toContain("computer use");
+    expect(parent).toContain("Gate A — OpenAI");
+    expect(parent).toContain("Gate B — Neon");
+    expect(parent).toContain("Keep that loop going");
+    expect(parent).toContain("OpenAI");
+    expect(parent).toContain("Neon");
+    expect(parent).toContain("CURAL_EVALUATION_REPORT");
+    expect(parent).toContain("ask-a-question");
+    for (const question of SAMPLE_UI_QUESTIONS) {
+      expect(parent).toContain(question);
     }
   });
 
@@ -70,87 +103,6 @@ describe("execution prompts", () => {
       expect(prompt).toContain("do not override frozen specs");
       expect(prompt).toContain("resolveFault(code) -> FaultResponse");
     }
-  });
-});
-
-describe("evaluation prompts", () => {
-  it("asks the agent to run both apps in the UI with two sample questions", () => {
-    const prompt = evaluationPrompt({
-      ...migration,
-      legacyBaseUrl: "http://legacy.local",
-      targetBaseUrl: "http://target.local",
-      fixtureCommand: "npm run seed",
-      snapshot: {
-        id: "snap-1",
-        createdAt: "2026-01-01T00:00:00.000Z",
-        executionBranch: "cural/exec-snap-1",
-        architectureVersion: 1,
-        asIs: { nodes: [], edges: [] },
-        toBe: { nodes: [], edges: [] },
-        journeys: [{
-          id: "ask-a-question",
-          title: "Ask a question",
-          actor: "Customer",
-          preconditions: [],
-          steps: ["Ask"],
-          outcomes: ["Answer"],
-          fixtures: [],
-          normalizationRules: [],
-          componentIds: [],
-          sourceEvidence: [],
-          required: true,
-        }],
-      },
-    });
-
-    expect(prompt).toContain("Do UI testing");
-    expect(prompt).toContain("Start both apps");
-    expect(prompt).toMatch(/Do not use Playwright/i);
-    for (const question of SAMPLE_UI_QUESTIONS) {
-      expect(prompt).toContain(question);
-    }
-    expect(prompt).toContain("legacy app");
-    expect(prompt).toContain("modern (V2) app");
-    expect(prompt).toContain("V2");
-    expect(prompt).toContain("cural/exec-snap-1");
-    expect(prompt).toContain("ask-a-question");
-    expect(prompt).not.toContain("tests/parity");
-    expect(prompt).not.toContain("Operator notes for this run");
-  });
-
-  it("appends operator notes after the frozen journey contract", () => {
-    const prompt = evaluationPrompt({
-      ...migration,
-      legacyBaseUrl: "http://legacy.local",
-      targetBaseUrl: "http://target.local",
-      fixtureCommand: "npm run seed",
-      extraPrompt: "Legacy is on :3001 today.",
-      snapshot: {
-        id: "snap-1",
-        createdAt: "2026-01-01T00:00:00.000Z",
-        executionBranch: "cural/exec-snap-1",
-        architectureVersion: 1,
-        asIs: { nodes: [], edges: [] },
-        toBe: { nodes: [], edges: [] },
-        journeys: [{
-          id: "ask-a-question",
-          title: "Ask a question",
-          actor: "Customer",
-          preconditions: [],
-          steps: ["Ask"],
-          outcomes: ["Answer"],
-          fixtures: [],
-          normalizationRules: [],
-          componentIds: [],
-          sourceEvidence: [],
-          required: true,
-        }],
-      },
-    });
-
-    expect(prompt).toContain("Legacy is on :3001 today.");
-    expect(prompt).toContain("do not override frozen specs");
-    expect(prompt).toContain("ask-a-question");
   });
 });
 

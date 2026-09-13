@@ -30,9 +30,7 @@ export async function GET(
       componentIds: componentIds ? componentIds.split(",").filter(Boolean) : undefined,
       components,
       kind:
-        kindRaw === "execute" || kindRaw === "evaluate"
-          ? kindRaw
-          : "analyze",
+        kindRaw === "execute" ? kindRaw : "analyze",
     });
     return NextResponse.json(result);
   } catch (error) {

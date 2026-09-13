@@ -16,6 +16,9 @@ export async function POST(request: Request) {
       prompt?: string;
       extraPrompt?: string;
       snapshot?: MigrationSnapshot;
+      legacyBaseUrl?: string;
+      targetBaseUrl?: string;
+      fixtureCommand?: string;
       requestKey?: string;
     };
     if (
@@ -38,6 +41,9 @@ export async function POST(request: Request) {
       prompt: body.prompt ?? "",
       extraPrompt: body.extraPrompt ?? "",
       snapshot: body.snapshot,
+      legacyBaseUrl: body.legacyBaseUrl ?? "",
+      targetBaseUrl: body.targetBaseUrl ?? "",
+      fixtureCommand: body.fixtureCommand ?? "",
       requestKey: body.requestKey,
     });
     return NextResponse.json(result);

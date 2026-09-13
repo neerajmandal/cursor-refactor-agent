@@ -97,13 +97,8 @@ export function ArchiveBoard({ archive }: { archive: RefactorArchive }) {
             },
             {
               label: "Execute",
-              detail: "Implements the frozen target specs.",
+              detail: "Implements the frozen specs and keeps going until the goal holds.",
               id: archive.executeAgentId,
-            },
-            {
-              label: "UI testing",
-              detail: "Walks both apps and compares outcomes.",
-              id: archive.evaluationAgentId,
             },
           ]}
         />

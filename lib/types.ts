@@ -65,7 +65,7 @@ export type MigrationSnapshot = {
   asIs: Graph;
   toBe: Graph;
   journeys: Journey[];
-  /** Orchestrator-assigned target branch for execute + E2E testing. */
+  /** Orchestrator-assigned target branch for execute (implement until the goal holds). */
   executionBranch: string;
 };
 
@@ -205,8 +205,8 @@ export const PHASE_LABEL: Record<Phase, string> = {
   analyzing_current: "Reading current architecture",
   analyzing_target: "Drafting target architecture",
   aligning: "Align on specs",
-  executing: "Agents running",
-  evaluating: "UI testing",
-  parity_failed: "UI testing needs work",
-  done: "UI testing passed",
+  executing: "Working toward the goal",
+  evaluating: "Working toward the goal",
+  parity_failed: "Goal not met",
+  done: "Goal achieved",
 };

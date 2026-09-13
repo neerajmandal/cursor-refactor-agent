@@ -54,7 +54,9 @@ export async function persistBoardArchive(
 
   if (!options.ingestArtifacts) return saved;
 
-  const agentId = saved.evaluationAgentId;
+  const agentId = isCloudAgentId(saved.executeAgentId)
+    ? saved.executeAgentId
+    : saved.evaluationAgentId;
   if (!isCloudAgentId(agentId)) return saved;
 
   for (const item of collectEvidencePaths(saved)) {

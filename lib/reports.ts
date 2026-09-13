@@ -1,3 +1,4 @@
+import { NEON_GOAL_CHECK, OPENAI_GOAL_CHECK } from "@/lib/prompts";
 import type {
   EvaluationCheck,
   EvaluationReport,
@@ -7,6 +8,16 @@ import type {
   NodeStatus,
   RunBranch,
 } from "@/lib/types";
+
+export const REQUIRED_GOAL_GATES = [OPENAI_GOAL_CHECK, NEON_GOAL_CHECK] as const;
+
+export function failedGoalGates(report: EvaluationReport): string[] {
+  const checks = report.journeys.flatMap((journey) => journey.checks);
+  return REQUIRED_GOAL_GATES.filter((name) => {
+    const check = checks.find((item) => item.name === name);
+    return !check || check.status !== "passed";
+  });
+}
 
 function asRecord(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" && !Array.isArray(value)
@@ -188,7 +199,7 @@ export function extractEvaluationReport(text: string): EvaluationReport | null {
       })
     : [];
 
-  return {
+  const report: EvaluationReport = {
     status:
       record.status === "passed" &&
       journeys.every((journey) => journey.status === "passed")
@@ -198,6 +209,10 @@ export function extractEvaluationReport(text: string): EvaluationReport | null {
     journeys,
     videos,
   };
+  if (failedGoalGates(report).length) {
+    return { ...report, status: "failed" };
+  }
+  return report;
 }
 
 export function runBranches(value: unknown): RunBranch[] {

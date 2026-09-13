@@ -7,8 +7,7 @@ import { nanoid } from "nanoid";
 const STEPS = [
   "Connect systems",
   "Review architecture",
-  "Execute",
-  "UI testing",
+  "Execute until the goal holds",
 ] as const;
 
 export function SetupForm() {
@@ -23,7 +22,7 @@ export function SetupForm() {
   const [legacyRef, setLegacyRef] = useState("");
   const [targetRef, setTargetRef] = useState("");
   const [prompt, setPrompt] = useState(
-    "Migrate the legacy industrial support app into the modern industrial support agent. Use an in-memory orchestrator and move away from the service bus, while keeping end-user outcomes equivalent.",
+    "Migrate the legacy industrial support app into the modern industrial support agent. Move away from the service bus. Operator questions must go through OpenAI, and answers must persist in Neon, while keeping end-user outcomes equivalent.",
   );
   const [legacyBaseUrl, setLegacyBaseUrl] = useState("");
   const [targetBaseUrl, setTargetBaseUrl] = useState("");
@@ -208,7 +207,7 @@ export function SetupForm() {
               </summary>
               <div className="absolute right-0 z-10 mt-2 w-[min(100vw-3rem,22rem)] rounded-xl border border-line bg-node p-3 shadow-sm">
                 <p className="text-[11px] leading-4 text-muted">
-                  Optional. Used after execution for reproducible end-to-end user testing.
+                  Optional. Used during execute so the agent can start both apps and prove the goal.
                 </p>
                 <div className="mt-2 space-y-2">
                   <input
@@ -255,7 +254,7 @@ export function SetupForm() {
 
         <footer className="flex shrink-0 items-center justify-between gap-4 border-t border-line pt-3">
           <p className="hidden text-[12px] leading-4 text-muted sm:block">
-            Next: analyze → review on the board → execute → UI testing.
+            Next: analyze → review on the board → execute until the goal holds.
           </p>
           <button
             type="submit"
