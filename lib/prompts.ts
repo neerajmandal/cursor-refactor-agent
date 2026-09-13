@@ -275,7 +275,7 @@ Include every component exactly once. Use passed on both reports only when every
 }
 
 /** Cursor cloud rejects custom subagent `prompt` fields above this length. */
-export const SUBAGENT_PROMPT_MAX_CHARS = 10_000;
+export const SUBAGENT_PROMPT_MAX_CHARS = 6_000;
 const SUBAGENT_CONTEXT_MAX_CHARS = 400;
 
 export function subagentPrompt(node: GraphNode, input: {
@@ -300,7 +300,7 @@ export function subagentPrompt(node: GraphNode, input: {
   const children = self.childIds
     .map((id) => byId.get(id))
     .filter((component): component is NonNullable<typeof component> => Boolean(component));
-  const specText = attachedSpec(self);
+  const specText = attachedSpec(self, { compact: true });
   const branchLine = input.executionBranch
     ? `Work only on branch ${input.executionBranch} in the target repo. Do not commit to main.`
     : "";

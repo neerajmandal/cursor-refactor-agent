@@ -3,7 +3,12 @@ import {
   toSpanningTree,
   type ComponentRef,
 } from "@/lib/graph";
-import { formatSpec, parseSpec, type ComponentSpec } from "@/lib/spec";
+import {
+  clampSpecForSubagent,
+  formatSpec,
+  parseSpec,
+  type ComponentSpec,
+} from "@/lib/spec";
 import type { Graph, GraphNode } from "@/lib/types";
 
 export type ExecutionComponent = {
@@ -66,8 +71,14 @@ export function executionPlan(graph: Graph): ExecutionPlan {
   };
 }
 
-export function attachedSpec(component: ExecutionComponent): string {
-  const formatted = formatSpec(component.spec);
+export function attachedSpec(
+  component: ExecutionComponent,
+  options?: { compact?: boolean },
+): string {
+  const spec = options?.compact
+    ? clampSpecForSubagent(component.spec)
+    : component.spec;
+  const formatted = formatSpec(spec);
   return `Frozen target-architecture spec for ${component.node.label} (${component.ref.id}):
 ${formatted || "No execution spec was provided."}`;
 }

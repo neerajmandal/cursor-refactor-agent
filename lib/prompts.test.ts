@@ -8,6 +8,7 @@ import {
   operatorNotes,
   subagentPrompt,
 } from "@/lib/prompts";
+import { SAMPLE_TO_BE } from "@/lib/sample-board";
 
 const component = {
   id: "fault-service",
@@ -175,7 +176,25 @@ describe("execution prompts", () => {
     expect(childAware).toContain("Direct children");
     expect(childAware).toContain("chat-service");
     expect(childAware).not.toContain("ask(question)");
+    expect(childAware).not.toContain("```json");
+    expect(childAware).not.toContain("Gate A — OpenAI");
+    expect(childAware).not.toContain("Copy the legacy app UI");
     expect(childAware.length).toBeLessThanOrEqual(SUBAGENT_PROMPT_MAX_CHARS);
+  });
+
+  it("keeps sample-board custom subagent prompts well under the Cursor API limit", () => {
+    const plan = executionPlan(SAMPLE_TO_BE);
+    for (const component of plan.components) {
+      const prompt = subagentPrompt(component.node, {
+        ...migration,
+        executionBranch: "cural/exec-snapshot-1",
+        plan,
+      });
+      expect(prompt).toContain(component.node.label);
+      expect(prompt).not.toContain("```json");
+      expect(prompt).not.toContain("Gate A — OpenAI");
+      expect(prompt.length).toBeLessThan(2_000);
+    }
   });
 
   it("keeps custom subagent prompts under the Cursor API limit", () => {
@@ -214,6 +233,8 @@ describe("execution prompts", () => {
     );
 
     expect(child.length).toBeLessThanOrEqual(SUBAGENT_PROMPT_MAX_CHARS);
+    expect(child).toContain("Frozen target-architecture spec");
+    expect(child).not.toContain("x".repeat(2_000));
     expect(fitCustomSubagentPrompt(huge).length).toBe(SUBAGENT_PROMPT_MAX_CHARS);
   });
 });

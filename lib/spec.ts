@@ -78,6 +78,11 @@ function stringField(record: Record<string, unknown>, keys: string[]): string {
 }
 
 export const PURPOSE_WORD_LIMIT = 200;
+/** Short lines for custom-subagent specs so Cursor does not reject the prompt. */
+export const SUBAGENT_SPEC_FIELD_CHARS = 400;
+export const SUBAGENT_SPEC_FIELD_LINES = 4;
+export const SUBAGENT_SPEC_DONE_WHEN_LINES = 6;
+export const SUBAGENT_SPEC_PURPOSE_CHARS = 1_200;
 
 export function wordCount(text: string): number {
   const parts = text.trim().split(/\s+/).filter(Boolean);
@@ -161,6 +166,37 @@ export function skimPurpose(text: string): {
     lead: introSentences[0] ?? intro,
     steps,
     notes: [...introSentences.slice(1), ...sentencesOf(afterFlow)],
+  };
+}
+
+export function clampSpecField(
+  text: string,
+  maxLines = SUBAGENT_SPEC_FIELD_LINES,
+  maxChars = SUBAGENT_SPEC_FIELD_CHARS,
+): string {
+  const lines = skimLines(text).slice(0, maxLines);
+  const joined = (lines.length ? lines : [text.trim()]).join("\n");
+  if (!joined) return "";
+  if (joined.length <= maxChars) return joined;
+  return `${joined.slice(0, Math.max(0, maxChars - 1)).trimEnd()}…`;
+}
+
+export function clampSpecForSubagent(spec: ComponentSpec): ComponentSpec {
+  return {
+    purpose: clampSpecField(
+      clampWords(spec.purpose),
+      SUBAGENT_SPEC_FIELD_LINES,
+      SUBAGENT_SPEC_PURPOSE_CHARS,
+    ),
+    interface: clampSpecField(spec.interface),
+    owns: clampSpecField(spec.owns),
+    dependsOn: clampSpecField(spec.dependsOn),
+    portFrom: clampSpecField(spec.portFrom),
+    outOfScope: clampSpecField(spec.outOfScope),
+    doneWhen: clampSpecField(
+      spec.doneWhen,
+      SUBAGENT_SPEC_DONE_WHEN_LINES,
+    ),
   };
 }
 

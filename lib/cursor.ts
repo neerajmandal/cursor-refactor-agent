@@ -64,6 +64,26 @@ export async function listRepos(): Promise<string[]> {
   return repos.map((repo) => repo.url).filter(Boolean);
 }
 
+export function customSubagentPromptSizes(
+  agents: Record<string, Pick<AgentDefinition, "prompt">>,
+): string {
+  return Object.entries(agents)
+    .map(([slug, definition]) => `${slug}=${definition.prompt.length}`)
+    .join(", ");
+}
+
+export function annotateSubagentPromptError(
+  error: unknown,
+  agents: Record<string, Pick<AgentDefinition, "prompt">>,
+): Error {
+  const sizes = customSubagentPromptSizes(agents);
+  console.error("Custom subagent prompt lengths", sizes);
+  const message = error instanceof Error ? error.message : "Execute failed";
+  return new Error(`${message} Custom subagent prompt lengths: ${sizes}`, {
+    cause: error,
+  });
+}
+
 export function evaluationEnvVars(input: {
   legacyBaseUrl: string;
   targetBaseUrl: string;
@@ -178,21 +198,26 @@ export async function startExecute(input: {
     legacyBaseUrl: input.legacyBaseUrl ?? "",
     targetBaseUrl: input.targetBaseUrl ?? "",
   });
-  const agent = await Agent.create({
-    apiKey,
-    model: MODEL,
-    name: "Cural migration execute",
-    cloud: {
-      ...cloudOptions(input.envName, repos),
-      autoCreatePR: true,
-      metadata: {
-        workflow: "migration-execute",
-        snapshotId: input.snapshot.id,
+  let agent;
+  try {
+    agent = await Agent.create({
+      apiKey,
+      model: MODEL,
+      name: "Cural migration execute",
+      cloud: {
+        ...cloudOptions(input.envName, repos),
+        autoCreatePR: true,
+        metadata: {
+          workflow: "migration-execute",
+          snapshotId: input.snapshot.id,
+        },
+        ...(Object.keys(envVars).length ? { envVars } : {}),
       },
-      ...(Object.keys(envVars).length ? { envVars } : {}),
-    },
-    agents,
-  });
+      agents,
+    });
+  } catch (error) {
+    throw annotateSubagentPromptError(error, agents);
+  }
 
   try {
     const run = await agent.send(
