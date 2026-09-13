@@ -1,12 +1,10 @@
 import {
   attachedSpec,
   executionPlan,
-  findComponent,
   formatExecutionTree,
   type ExecutionPlan,
 } from "@/lib/execution";
 import type { ComponentRef } from "@/lib/graph";
-import { parseSpec } from "@/lib/spec";
 import type {
   Graph,
   GraphNode,
@@ -185,10 +183,10 @@ export function executePrompt(input: {
         .join(", ");
       return `## ${component.node.label}
 Component id: ${component.ref.id}
-Subagent slug: ${component.ref.slug}
+Component key: ${component.ref.slug}
 Kind: ${component.node.kind ?? "component"}
 Parent: ${parent ? `${parent.node.label} [${parent.ref.slug}]` : "none (root)"}
-Direct children to spawn: ${children || "none"}
+Direct child components: ${children || "none"}
 
 ${attachedSpec(component)}`;
     })
@@ -207,7 +205,9 @@ ${attachedSpec(component)}`;
     snapshot: input.snapshot,
     journeys: input.snapshot?.journeys,
   });
-  return `You are the parent migration agent. Delegate implementation. Do not stop after writing code.
+  return `You are the master migration agent. Coordinate the full implementation and do not stop after writing code.
+
+Use subagents whenever possible. As the master agent, decide what can run in parallel, delegate component work, coordinate dependencies and shared contracts, review every result against the frozen specs below, and integrate the work into one consistent target repository. You remain responsible for the whole migration and final verification.
 
 Execute the frozen plan first. Only after the plan is in place, prove it with computer use: send the two sample questions through the legacy app, then send the same two questions through the modern app.
 
@@ -231,15 +231,13 @@ ${MODERN_UI_RULE}
 
 ${goal}
 
-Execute the frozen TARGET architecture as a hierarchy, not a flat list. Each named subagent already has that component's target-architecture spec attached. Do not rewrite specs.
-
 Target architecture tree:
 ${formatExecutionTree(plan) || "No target components."}
 
-Spawn only the root subagent(s): ${rootSlugs || "(none)"}.
-A parent implements its own layer, then spawns only its direct children (use those slugs). Children spawn their children. Do not skip levels. Do not implement a child's owns. Each named subagent already has its own frozen spec — do not paste child specs into the spawn prompt. Review each child diff against that spec and keep shared contracts consistent.
+Begin coordination with the root component(s): ${rootSlugs || "(none)"}.
+Follow the tree as a dependency hierarchy. Delegate components to subagents whenever possible, parallelize independent work, and keep ownership boundaries intact. The master agent coordinates all subagents and integrates their results; do not rely on child agents to coordinate the migration.
 
-Components and attached target specs:
+Frozen component specs (all specs are intentionally included in this top-level master prompt; there are no separate component-specific custom agent prompts):
 ${roster}
 
 Each time you start or finish a component, emit a status line on its own line so the board can light up that node:
@@ -248,7 +246,7 @@ CURAL_STATUS {"id":"<id>","status":"done"}
 CURAL_STATUS {"id":"<id>","status":"error"}
 
 Work loop (required):
-1. Execute the frozen plan hierarchically. Spawn root subagents first, let each parent spawn its children, review each diff against the attached target spec, and keep the target repo consistent.
+1. Execute the frozen plan. Use subagents whenever possible, coordinate them from this master agent, review each result against the component specs above, and keep the target repo consistent.
 2. Run the target repository's relevant checks.
 3. Then test with computer use (VM browser / computer use only). Do not use Playwright, Cypress, or Selenium. Do not compare source code. Start both apps. Send the two sample questions via the legacy app, then send the same two questions via the modern app.
 4. Gate A — OpenAI: prove both modern questions were sent to the live OpenAI API. If not, you are not done.
@@ -273,69 +271,6 @@ CURAL_EVALUATION_REPORT
 ${goalReportShape(input.snapshot)}
 \`\`\`
 Include every component exactly once. Use passed on both reports only when every component is done, target checks pass, Gate A (OpenAI) passed, and Gate B (Neon) passed. If either gate failed, status must be failed and you must keep looping instead of stopping.${operatorNotes(input.extraPrompt)}`;
-}
-
-/** Cursor cloud rejects custom subagent `prompt` fields above this length. */
-export const SUBAGENT_PROMPT_MAX_CHARS = 2_000;
-const SUBAGENT_NOTE_MAX_CHARS = 80;
-
-export function subagentPrompt(node: GraphNode, input: {
-  legacyRepo: string;
-  targetRepo: string;
-  executionBranch?: string;
-  prompt: string;
-  extraPrompt?: string;
-  plan?: ExecutionPlan;
-}): string {
-  const plan = input.plan ?? executionPlan({ nodes: [node], edges: [] });
-  const self = findComponent(plan, node.id) ?? {
-    ref: { id: node.id, label: node.label, slug: node.id },
-    node,
-    spec: parseSpec(node.spec),
-    parentId: null,
-    childIds: [] as string[],
-    depth: 0,
-  };
-  const byId = new Map(plan.components.map((component) => [component.ref.id, component]));
-  const parent = self.parentId ? byId.get(self.parentId) : undefined;
-  const children = self.childIds
-    .map((id) => byId.get(id))
-    .filter((component): component is NonNullable<typeof component> => Boolean(component));
-  const specText = attachedSpec(self, { compact: true });
-  const branch = input.executionBranch
-    ? ` on ${input.executionBranch}`
-    : "";
-  const parentLine = parent
-    ? `Parent: ${parent.node.label} [${parent.ref.slug}]`
-    : "Parent: none (root)";
-  const childLine = children.length
-    ? `Spawn: ${children.map((child) => child.ref.slug).join(", ")}`
-    : "Spawn: none";
-  const note = clampChars(input.extraPrompt, SUBAGENT_NOTE_MAX_CHARS);
-
-  return fitCustomSubagentPrompt(`Implement ${self.node.label} [${self.ref.slug}] (${self.ref.id}) in ${input.targetRepo}${branch}.
-Legacy reference only: ${input.legacyRepo}
-${parentLine}
-${childLine}
-Stay in this component's owns. Do not rebuild the parent or implement a child's owns.
-
-Target
-${specText}${note ? `\nNote: ${note}` : ""}`);
-}
-
-export function fitCustomSubagentPrompt(
-  prompt: string,
-  max = SUBAGENT_PROMPT_MAX_CHARS,
-): string {
-  if (prompt.length <= max) return prompt;
-  if (max <= 1) return "…".slice(0, max);
-  return `${prompt.slice(0, max - 1).trimEnd()}…`;
-}
-
-function clampChars(text: string | undefined, max: number): string {
-  const value = text?.trim() ?? "";
-  if (!value || value.length <= max) return value;
-  return `${value.slice(0, Math.max(0, max - 1)).trimEnd()}…`;
 }
 
 export function operatorNotes(extraPrompt?: string): string {

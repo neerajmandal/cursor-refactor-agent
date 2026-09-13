@@ -4,8 +4,6 @@ import {
   SPEC_DONE_WHEN_LINES,
   SPEC_FIELD_CHARS,
   SPEC_PURPOSE_CHARS,
-  clampSpecForSubagent,
-  formatSpecCompact,
   normalizeSpec,
   parseSpec,
 } from "@/lib/spec";
@@ -23,7 +21,6 @@ const shortSpec = {
 describe("normalizeSpec", () => {
   it("keeps a short spec intact", () => {
     expect(normalizeSpec(shortSpec)).toEqual(shortSpec);
-    expect(clampSpecForSubagent(shortSpec)).toEqual(shortSpec);
     expect(parseSpec(shortSpec)).toEqual(shortSpec);
   });
 
@@ -43,7 +40,7 @@ describe("normalizeSpec", () => {
     expect(spec.purpose).not.toContain("Public interface");
   });
 
-  it("caps verbose fields before they inflate a custom subagent prompt", () => {
+  it("caps verbose architecture spec fields", () => {
     const huge = Array.from({ length: 40 }, (_, index) => `line-${index} ${"x".repeat(80)}`).join("\n");
     const clamped = normalizeSpec({
       purpose: `${"word ".repeat(300)}end`,
@@ -62,19 +59,4 @@ describe("normalizeSpec", () => {
     expect(clamped.doneWhen.split("\n").length).toBeLessThanOrEqual(SPEC_DONE_WHEN_LINES);
   });
 
-  it("formats a compact target card", () => {
-    expect(formatSpecCompact(shortSpec)).toBe(
-      [
-        "Purpose: Resolve a HelioDrive fault code for an operator.",
-        "Interface: resolveFault(code) -> FaultResponse",
-        "Owns: src/faults/service.ts",
-        "Depends on: FaultRepository",
-        "Port from: legacy/FaultCodeService",
-        "Out of scope: Device telemetry ingestion",
-        "Done when:",
-        "  Known fault returns operator guidance",
-        "  Unknown fault returns not-found",
-      ].join("\n"),
-    );
-  });
 });

@@ -2,13 +2,9 @@ import { describe, expect, it } from "vitest";
 import { executionPlan } from "@/lib/execution";
 import {
   SAMPLE_UI_QUESTIONS,
-  SUBAGENT_PROMPT_MAX_CHARS,
   executePrompt,
-  fitCustomSubagentPrompt,
   operatorNotes,
-  subagentPrompt,
 } from "@/lib/prompts";
-import { SAMPLE_TO_BE } from "@/lib/sample-board";
 
 const component = {
   id: "fault-service",
@@ -32,7 +28,7 @@ const migration = {
 };
 
 describe("execution prompts", () => {
-  it("includes the frozen component spec in both parent and subagent prompts", () => {
+  it("includes every frozen component spec in the top-level master prompt", () => {
     const snapshot = {
       id: "snap-1",
       createdAt: "2026-01-01T00:00:00.000Z",
@@ -60,31 +56,23 @@ describe("execution prompts", () => {
       components: [component],
       snapshot,
     });
-    const child = subagentPrompt(component, {
-      ...migration,
-      executionBranch: "cural/exec-snapshot-1",
-    });
 
-    for (const prompt of [parent, child]) {
-      expect(prompt).toContain("resolveFault(code) -> FaultResponse");
-      expect(prompt).toContain("Unknown fault returns not-found");
-      expect(prompt).toContain("Device telemetry ingestion");
-      expect(prompt).toContain("cural/exec-snapshot-1");
-      expect(prompt).not.toContain("Operator notes for this run");
-    }
+    expect(parent).toContain("resolveFault(code) -> FaultResponse");
+    expect(parent).toContain("Unknown fault returns not-found");
+    expect(parent).toContain("Device telemetry ingestion");
+    expect(parent).toContain("cural/exec-snapshot-1");
+    expect(parent).not.toContain("Operator notes for this run");
     expect(parent).toContain("Copy the legacy app UI");
     expect(parent).toContain("V2");
     expect(parent).toContain("Execute the frozen plan first");
     expect(parent).toContain("send the two sample questions through the legacy app");
     expect(parent).toContain("same two questions through the modern app");
     expect(parent).toContain("Neon database configured on the modern repo branch cural/exec-snapshot-1");
-    expect(parent).toContain("as a hierarchy");
     expect(parent).toContain("Frozen target-architecture spec");
-    expect(child).toContain("Implement FaultService [fault-service]");
-    expect(child).toContain("Target");
-    expect(child).not.toContain("Team intent");
-    expect(child).not.toContain("Frozen target-architecture spec");
-    expect(child).not.toContain("You implement one component of a hierarchical migration");
+    expect(parent).toContain("master migration agent");
+    expect(parent).toContain("Use subagents whenever possible");
+    expect(parent).toContain("master agent coordinates all subagents");
+    expect(parent).toContain("there are no separate component-specific custom agent prompts");
     expect(parent).toContain("computer use");
     expect(parent).toContain("Gate A — OpenAI");
     expect(parent).toContain("Gate B — Neon");
@@ -106,21 +94,13 @@ describe("execution prompts", () => {
       components: [component],
       extraPrompt: notes,
     });
-    const child = subagentPrompt(component, {
-      ...migration,
-      executionBranch: "cural/exec-snapshot-1",
-      extraPrompt: notes,
-    });
 
     expect(parent).toContain(notes);
     expect(parent).toContain("do not override frozen specs");
     expect(parent).toContain("resolveFault(code) -> FaultResponse");
-    expect(child).toContain(`Note: ${notes}`);
-    expect(child).not.toContain("do not override frozen specs");
-    expect(child).toContain("resolveFault(code) -> FaultResponse");
   });
 
-  it("spawns roots first and attaches child specs on parent subagents", () => {
+  it("gives the master the full component hierarchy and all component specs", () => {
     const controller = {
       id: "chat-controller",
       label: "ChatController",
@@ -169,81 +149,12 @@ describe("execution prompts", () => {
         journeys: [],
       },
     });
-    const childAware = subagentPrompt(controller, {
-      ...migration,
-      executionBranch: "cural/exec-snapshot-1",
-      plan,
-    });
 
-    expect(parent).toContain("Spawn only the root subagent(s): chat-controller");
-    expect(parent).toContain("Direct children to spawn: chat-service");
+    expect(parent).toContain("Begin coordination with the root component(s): chat-controller");
+    expect(parent).toContain("Direct child components: chat-service");
+    expect(parent).toContain("POST /ask");
     expect(parent).toContain("ask(question)");
-    expect(childAware).toContain("Implement ChatController [chat-controller]");
-    expect(childAware).toContain("Spawn: chat-service");
-    expect(childAware).toContain("chat-service");
-    expect(childAware).not.toContain("ask(question)");
-    expect(childAware).not.toContain("```json");
-    expect(childAware).not.toContain("Gate A — OpenAI");
-    expect(childAware).not.toContain("Copy the legacy app UI");
-    expect(childAware.length).toBeLessThanOrEqual(SUBAGENT_PROMPT_MAX_CHARS);
-  });
-
-  it("keeps sample-board custom subagent prompts well under the Cursor API limit", () => {
-    const plan = executionPlan(SAMPLE_TO_BE);
-    for (const component of plan.components) {
-      const prompt = subagentPrompt(component.node, {
-        ...migration,
-        executionBranch: "cural/exec-snapshot-1",
-        plan,
-      });
-      expect(prompt).toContain(component.node.label);
-      expect(prompt).not.toContain("```json");
-      expect(prompt).not.toContain("Gate A — OpenAI");
-      expect(prompt.length).toBeLessThan(1_200);
-    }
-  });
-
-  it("keeps custom subagent prompts under the Cursor API limit", () => {
-    const huge = "x".repeat(20_000);
-    const child = subagentPrompt(
-      {
-        ...component,
-        spec: {
-          ...component.spec,
-          purpose: huge,
-          interface: huge,
-          owns: huge,
-        },
-      },
-      {
-        ...migration,
-        executionBranch: "cural/exec-snapshot-1",
-        prompt: huge,
-        extraPrompt: huge,
-        plan: executionPlan({
-          nodes: [
-            {
-              id: "chat-controller",
-              label: "ChatController",
-              spec: { purpose: huge, interface: huge, owns: huge, dependsOn: huge, portFrom: huge, outOfScope: huge, doneWhen: huge },
-            },
-            {
-              id: "fault-service",
-              label: "FaultService",
-              spec: { purpose: huge, interface: huge, owns: huge, dependsOn: huge, portFrom: huge, outOfScope: huge, doneWhen: huge },
-            },
-          ],
-          edges: [{ from: "chat-controller", to: "fault-service" }],
-        }),
-      },
-    );
-
-    expect(child.length).toBeLessThanOrEqual(SUBAGENT_PROMPT_MAX_CHARS);
-    expect(child).toContain("Target");
-    expect(child).not.toContain("Frozen target-architecture spec");
-    expect(child).not.toContain("Team intent");
-    expect(child).not.toContain("x".repeat(2_000));
-    expect(fitCustomSubagentPrompt(huge).length).toBe(SUBAGENT_PROMPT_MAX_CHARS);
+    expect(parent).toContain("master agent coordinates all subagents");
   });
 });
 

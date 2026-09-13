@@ -1,14 +1,9 @@
-import { Agent, type AgentDefinition, type CloudAgentOptions } from "@cursor/sdk";
+import { Agent, type CloudAgentOptions } from "@cursor/sdk";
 import { executionBranchName } from "@/lib/branch";
 import { executionPlan } from "@/lib/execution";
 import { componentRefs, layoutGraph } from "@/lib/graph";
 import { extractAnalysis } from "@/lib/journey";
-import {
-  asIsPrompt,
-  executePrompt,
-  subagentPrompt,
-  toBePrompt,
-} from "@/lib/prompts";
+import { asIsPrompt, executePrompt, toBePrompt } from "@/lib/prompts";
 import {
   extractEvaluationReport,
   extractExecutionReport,
@@ -56,26 +51,6 @@ export function cloudOptions(envName: string, repos: RepoInput[]): CloudAgentOpt
     env: { type: "cloud" },
     repos: checkedOutRepos,
   };
-}
-
-export function customSubagentPromptSizes(
-  agents: Record<string, Pick<AgentDefinition, "prompt">>,
-): string {
-  return Object.entries(agents)
-    .map(([slug, definition]) => `${slug}=${definition.prompt.length}`)
-    .join(", ");
-}
-
-export function annotateSubagentPromptError(
-  error: unknown,
-  agents: Record<string, Pick<AgentDefinition, "prompt">>,
-): Error {
-  const sizes = customSubagentPromptSizes(agents);
-  console.error("Custom subagent prompt lengths", sizes);
-  const message = error instanceof Error ? error.message : "Execute failed";
-  return new Error(`${message} Custom subagent prompt lengths: ${sizes}`, {
-    cause: error,
-  });
 }
 
 export function evaluationEnvVars(input: {
@@ -163,7 +138,6 @@ export async function startExecute(input: {
   requestKey?: string;
 }): Promise<{ agentId: string; runId: string }> {
   const apiKey = requireApiKey();
-  const agents: Record<string, AgentDefinition> = {};
   const plan = executionPlan(input.snapshot.toBe);
   const components = plan.components.map((component) => component.node);
   const refs = plan.components.map((component) => component.ref);
@@ -171,18 +145,6 @@ export async function startExecute(input: {
   const executionBranch =
     input.snapshot.executionBranch?.trim() ||
     executionBranchName(input.snapshot.id);
-  for (const component of plan.components) {
-    agents[component.ref.slug] = {
-      description: component.parentId
-        ? `Implement target child ${component.ref.label} (${component.ref.id}) from the frozen target spec.`
-        : `Implement target root ${component.ref.label} (${component.ref.id}) and spawn its children.`,
-      prompt: subagentPrompt(component.node, {
-        ...input,
-        executionBranch,
-        plan,
-      }),
-    };
-  }
 
   const repos = [
     { url: input.legacyRepo, startingRef: input.legacyRef || undefined },
@@ -192,26 +154,20 @@ export async function startExecute(input: {
     legacyBaseUrl: input.legacyBaseUrl ?? "",
     targetBaseUrl: input.targetBaseUrl ?? "",
   });
-  let agent;
-  try {
-    agent = await Agent.create({
-      apiKey,
-      model: MODEL,
-      name: "Cural migration execute",
-      cloud: {
-        ...cloudOptions(input.envName, repos),
-        autoCreatePR: true,
-        metadata: {
-          workflow: "migration-execute",
-          snapshotId: input.snapshot.id,
-        },
-        ...(Object.keys(envVars).length ? { envVars } : {}),
+  const agent = await Agent.create({
+    apiKey,
+    model: MODEL,
+    name: "Cural migration execute",
+    cloud: {
+      ...cloudOptions(input.envName, repos),
+      autoCreatePR: true,
+      metadata: {
+        workflow: "migration-execute",
+        snapshotId: input.snapshot.id,
       },
-      agents,
-    });
-  } catch (error) {
-    throw annotateSubagentPromptError(error, agents);
-  }
+      ...(Object.keys(envVars).length ? { envVars } : {}),
+    },
+  });
 
   try {
     const run = await agent.send(

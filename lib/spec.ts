@@ -83,10 +83,6 @@ export const SPEC_FIELD_LINES = 4;
 export const SPEC_FIELD_CHARS = 160;
 export const SPEC_DONE_WHEN_LINES = 4;
 export const SPEC_PURPOSE_CHARS = 280;
-export const SUBAGENT_SPEC_FIELD_CHARS = SPEC_FIELD_CHARS;
-export const SUBAGENT_SPEC_FIELD_LINES = SPEC_FIELD_LINES;
-export const SUBAGENT_SPEC_DONE_WHEN_LINES = SPEC_DONE_WHEN_LINES;
-export const SUBAGENT_SPEC_PURPOSE_CHARS = SPEC_PURPOSE_CHARS;
 
 export function wordCount(text: string): number {
   const parts = text.trim().split(/\s+/).filter(Boolean);
@@ -175,8 +171,8 @@ export function skimPurpose(text: string): {
 
 export function clampSpecField(
   text: string,
-  maxLines = SUBAGENT_SPEC_FIELD_LINES,
-  maxChars = SUBAGENT_SPEC_FIELD_CHARS,
+  maxLines = SPEC_FIELD_LINES,
+  maxChars = SPEC_FIELD_CHARS,
 ): string {
   const lines = skimLines(text).slice(0, maxLines);
   const joined = (lines.length ? lines : [text.trim()]).join("\n");
@@ -203,27 +199,10 @@ export function normalizeSpec(spec: ComponentSpec): ComponentSpec {
   };
 }
 
-export function clampSpecForSubagent(spec: ComponentSpec): ComponentSpec {
-  return normalizeSpec(spec);
-}
-
 export function formatSpec(spec: ComponentSpec): string {
   return SPEC_FIELDS.filter((field) => spec[field.key].trim())
     .map((field) => `${field.label}\n${spec[field.key].trim()}`)
     .join("\n\n");
-}
-
-export function formatSpecCompact(spec: ComponentSpec): string {
-  return SPEC_FIELDS.filter((field) => spec[field.key].trim())
-    .map((field) => {
-      const value = spec[field.key].trim();
-      if (!value.includes("\n")) return `${field.label}: ${value}`;
-      return `${field.label}:\n${value
-        .split("\n")
-        .map((line) => `  ${line}`)
-        .join("\n")}`;
-    })
-    .join("\n");
 }
 
 export function specEquals(a: ComponentSpec, b: ComponentSpec): boolean {
