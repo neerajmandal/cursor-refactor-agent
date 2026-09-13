@@ -1,4 +1,4 @@
-import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { nanoid } from "nanoid";
 import type {
@@ -97,6 +97,16 @@ export function createFileArchiveStore(): ArchiveStore {
 
     async get(id) {
       return readArchive(id);
+    },
+
+    async remove(id) {
+      if (!id || id.includes("..") || id.includes("/") || id.includes("\\")) {
+        return false;
+      }
+      const existing = await readArchive(id);
+      if (!existing) return false;
+      await rm(path.join(dataRoot(), id), { recursive: true, force: true });
+      return true;
     },
 
     async upsert(input: ArchiveUpsert) {

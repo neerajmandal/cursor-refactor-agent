@@ -130,6 +130,7 @@ export type EvaluationReport = {
 };
 
 export type BoardStorage = BoardSetup & {
+  extraPrompt: string;
   phase: Phase;
   asIs: Graph;
   toBe: Graph;
@@ -172,6 +173,7 @@ export function createInitialBoardStorage(
   return {
     ...EMPTY_SETUP,
     ...setup,
+    extraPrompt: "",
     phase: "analyzing_current",
     asIs: EMPTY_GRAPH,
     toBe: EMPTY_GRAPH,

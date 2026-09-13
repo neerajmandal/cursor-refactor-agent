@@ -82,6 +82,7 @@ export type ArchiveUpsert = Omit<
 export type ArchiveStore = {
   list(): Promise<ArchiveSummary[]>;
   get(id: string): Promise<RefactorArchive | null>;
+  remove(id: string): Promise<boolean>;
   upsert(archive: ArchiveUpsert): Promise<RefactorArchive>;
   putArtifact(input: {
     refactorId: string;

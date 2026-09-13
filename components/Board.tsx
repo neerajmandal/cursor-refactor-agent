@@ -13,6 +13,7 @@ import { ArchitecturePane } from "@/components/ArchitecturePane";
 import { BoardChrome, BoardOverflowItem, type BoardView } from "@/components/BoardChrome";
 import { CursorBriefPanel } from "@/components/CursorBriefPanel";
 import { EvidencePanel } from "@/components/EvidencePanel";
+import { RunNotesComposer } from "@/components/RunNotesComposer";
 import { SpecInspector } from "@/components/SpecInspector";
 import { persistBoardArchiveClient } from "@/lib/archive/client";
 import {
@@ -122,6 +123,7 @@ export function Board() {
   const legacyRef = useStorage((root) => root.legacyRef ?? "");
   const targetRef = useStorage((root) => root.targetRef ?? "");
   const prompt = useStorage((root) => root.prompt);
+  const extraPrompt = useStorage((root) => root.extraPrompt ?? "");
   const legacyBaseUrl = useStorage((root) => root.legacyBaseUrl ?? "");
   const targetBaseUrl = useStorage((root) => root.targetBaseUrl ?? "");
   const fixtureCommand = useStorage((root) => root.fixtureCommand ?? "");
@@ -587,6 +589,7 @@ export function Board() {
           legacyBaseUrl,
           targetBaseUrl,
           fixtureCommand,
+          extraPrompt,
           snapshot,
           requestKey: `${room.id}:evaluate:${snapshot.id}`,
         }),
@@ -607,6 +610,7 @@ export function Board() {
   }, [
     claimEvaluation,
     envName,
+    extraPrompt,
     fixtureCommand,
     legacyBaseUrl,
     legacyRepo,
@@ -797,6 +801,7 @@ export function Board() {
           targetRepo,
           targetRef,
           prompt,
+          extraPrompt,
           snapshot: runSnapshot,
           requestKey: `${room.id}:execute:${runSnapshot.id}`,
         }),
@@ -913,21 +918,35 @@ export function Board() {
         }
         primaryAction={
           phase === "aligning" ? (
-            <button
-              type="button"
-              onClick={() => void execute()}
-              className="inline-flex items-center gap-2 rounded-md bg-cta px-3.5 py-2 text-[13px] font-medium text-white transition-colors hover:bg-ink"
-            >
-              Execute plan <span aria-hidden>→</span>
-            </button>
+            <div className="flex items-center gap-2">
+              <RunNotesComposer
+                value={extraPrompt}
+                onChange={(value) => patch({ extraPrompt: value })}
+                appliesTo="execute"
+              />
+              <button
+                type="button"
+                onClick={() => void execute()}
+                className="inline-flex items-center gap-2 rounded-md bg-cta px-3.5 py-2 text-[13px] font-medium text-white transition-colors hover:bg-ink"
+              >
+                Execute plan <span aria-hidden>→</span>
+              </button>
+            </div>
           ) : (phase === "done" || phase === "parity_failed") && executionSnapshot ? (
-            <button
-              type="button"
-              onClick={retryEvaluation}
-              className="inline-flex items-center gap-2 rounded-md border border-line bg-white px-3.5 py-2 text-[13px] font-medium text-ink transition-colors hover:bg-paper-2"
-            >
-              Rerun E2E testing
-            </button>
+            <div className="flex items-center gap-2">
+              <RunNotesComposer
+                value={extraPrompt}
+                onChange={(value) => patch({ extraPrompt: value })}
+                appliesTo="evaluate"
+              />
+              <button
+                type="button"
+                onClick={retryEvaluation}
+                className="inline-flex items-center gap-2 rounded-md border border-line bg-white px-3.5 py-2 text-[13px] font-medium text-ink transition-colors hover:bg-paper-2"
+              >
+                Rerun E2E testing
+              </button>
+            </div>
           ) : null
         }
         overflow={

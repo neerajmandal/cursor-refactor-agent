@@ -140,6 +140,7 @@ export async function startExecute(input: {
   targetRepo: string;
   targetRef: string;
   prompt: string;
+  extraPrompt?: string;
   snapshot: MigrationSnapshot;
   requestKey?: string;
 }): Promise<{ agentId: string; runId: string }> {
@@ -198,6 +199,7 @@ export async function startEvaluation(input: {
   legacyBaseUrl: string;
   targetBaseUrl: string;
   fixtureCommand: string;
+  extraPrompt?: string;
   snapshot: MigrationSnapshot;
   requestKey?: string;
 }): Promise<{ agentId: string; runId: string }> {

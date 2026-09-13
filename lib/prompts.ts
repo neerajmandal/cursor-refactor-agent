@@ -140,6 +140,7 @@ export function executePrompt(input: {
   targetRef?: string;
   executionBranch: string;
   prompt: string;
+  extraPrompt?: string;
   components: GraphNode[];
   refs?: ComponentRef[];
 }): string {
@@ -196,7 +197,7 @@ CURAL_EXECUTION_REPORT
   ]
 }
 \`\`\`
-Include every component exactly once. Use passed only when every component is done and target checks pass.`;
+Include every component exactly once. Use passed only when every component is done and target checks pass.${operatorNotes(input.extraPrompt)}`;
 }
 
 export function subagentPrompt(node: GraphNode, input: {
@@ -204,6 +205,7 @@ export function subagentPrompt(node: GraphNode, input: {
   targetRepo: string;
   executionBranch?: string;
   prompt: string;
+  extraPrompt?: string;
 }): string {
   const specText = formatSpec(parseSpec(node.spec));
   const branchLine = input.executionBranch
@@ -226,7 +228,16 @@ ${input.prompt}
 Spec (source of truth, aligned by humans before execution):
 ${specText || "No spec provided. Infer a minimal, correct implementation from the legacy repo."}
 
-Stay inside this component's boundary. Match existing target-repo conventions if any files already exist.`;
+Stay inside this component's boundary. Match existing target-repo conventions if any files already exist.${operatorNotes(input.extraPrompt)}`;
+}
+
+export function operatorNotes(extraPrompt?: string): string {
+  const notes = extraPrompt?.trim();
+  if (!notes) return "";
+  return `
+
+Operator notes for this run (do not override frozen specs, journey ids, the assigned branch, status markers, or the required report JSON):
+${notes}`;
 }
 
 function journeyText(journey: Journey): string {
@@ -241,6 +252,7 @@ export function evaluationPrompt(input: {
   legacyBaseUrl: string;
   targetBaseUrl: string;
   fixtureCommand: string;
+  extraPrompt?: string;
   snapshot: MigrationSnapshot;
 }): string {
   const journeys = input.snapshot.journeys
@@ -304,5 +316,5 @@ CURAL_EVALUATION_REPORT
   ]
 }
 \`\`\`
-Include every required journey. Prefer at least one VM walkthrough video per required journey. Use passed only when every required journey and check passed.`;
+Include every required journey. Prefer at least one VM walkthrough video per required journey. Use passed only when every required journey and check passed.${operatorNotes(input.extraPrompt)}`;
 }

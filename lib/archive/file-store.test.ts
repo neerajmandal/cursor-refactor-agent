@@ -47,6 +47,11 @@ test("file archive store lists, upserts, and serves artifacts", async () => {
 
   const archive = await store.get("board-1");
   expect(archive?.artifacts).toHaveLength(1);
+
+  expect(await store.remove("board-1")).toBe(true);
+  expect(await store.get("board-1")).toBeNull();
+  expect(await store.list()).toEqual([]);
+  expect(await store.remove("board-1")).toBe(false);
 });
 
 test("rejects unsafe artifact paths", async () => {

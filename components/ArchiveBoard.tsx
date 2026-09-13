@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { ArchitecturePane } from "@/components/ArchitecturePane";
 import { BoardChrome, BoardOverflowItem, type BoardView } from "@/components/BoardChrome";
 import { CursorBriefPanel } from "@/components/CursorBriefPanel";
@@ -13,7 +14,9 @@ import { archiveArtifactUrl } from "@/lib/archive/types";
 type View = BoardView;
 
 export function ArchiveBoard({ archive }: { archive: RefactorArchive }) {
+  const router = useRouter();
   const [view, setView] = useState<View>("architecture");
+  const [deleting, setDeleting] = useState(false);
   const [selected, setSelected] = useState<{ pane: "asIs" | "toBe"; id: string } | null>(
     null,
   );
@@ -43,6 +46,31 @@ export function ArchiveBoard({ archive }: { archive: RefactorArchive }) {
             >
               Back to projects
             </Link>
+            <BoardOverflowItem
+              disabled={deleting}
+              onClick={() => {
+                if (
+                  !window.confirm(
+                    "Delete this saved refactor and its evidence?",
+                  )
+                ) {
+                  return;
+                }
+                setDeleting(true);
+                void fetch(`/api/archives/${encodeURIComponent(archive.id)}`, {
+                  method: "DELETE",
+                }).then((response) => {
+                  if (!response.ok) {
+                    setDeleting(false);
+                    return;
+                  }
+                  router.replace("/projects");
+                  router.refresh();
+                });
+              }}
+            >
+              {deleting ? "Deleting…" : "Delete project"}
+            </BoardOverflowItem>
           </>
         }
       />

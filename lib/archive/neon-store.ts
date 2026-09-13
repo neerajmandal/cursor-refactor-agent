@@ -1,5 +1,5 @@
 import { neon } from "@neondatabase/serverless";
-import { get, put } from "@vercel/blob";
+import { del, get, put } from "@vercel/blob";
 import { nanoid } from "nanoid";
 import type {
   ArchiveArtifact,
@@ -187,6 +187,25 @@ export function createNeonArchiveStore(): ArchiveStore {
       const row = rows[0];
       if (!row) return null;
       return rowToArchive(row, await loadArtifacts(sql, id));
+    },
+
+    async remove(id) {
+      await ensureSchema();
+      const existing = await this.get(id);
+      if (!existing) return false;
+      const token = process.env.BLOB_READ_WRITE_TOKEN?.trim();
+      const blobPaths = existing.artifacts
+        .map((artifact) => artifact.blobPathname)
+        .filter((pathname): pathname is string => Boolean(pathname));
+      if (token && blobPaths.length) {
+        try {
+          await del(blobPaths, { token });
+        } catch {
+          // Archive rows still go away if blob cleanup fails.
+        }
+      }
+      await sql`DELETE FROM refactors WHERE id = ${id}`;
+      return true;
     },
 
     async upsert(input: ArchiveUpsert) {

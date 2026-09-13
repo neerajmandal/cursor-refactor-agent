@@ -37,3 +37,13 @@ export async function createBoardRoom(
   }
   return storage;
 }
+
+export async function deleteBoardRoom(boardId: string): Promise<void> {
+  const secret = process.env.LIVEBLOCKS_SECRET_KEY?.trim();
+  if (!secret) return;
+  try {
+    await new Liveblocks({ secret }).deleteRoom(boardId);
+  } catch {
+    // The live room may already be gone.
+  }
+}

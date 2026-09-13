@@ -5,6 +5,7 @@ import { ArchitecturePane } from "@/components/ArchitecturePane";
 import { BoardChrome, type BoardView } from "@/components/BoardChrome";
 import { CursorBriefPanel } from "@/components/CursorBriefPanel";
 import { EvidencePanel } from "@/components/EvidencePanel";
+import { RunNotesComposer } from "@/components/RunNotesComposer";
 import { SpecPanel } from "@/components/SpecPanel";
 import { SAMPLE_AS_IS, SAMPLE_TO_BE } from "@/lib/sample-board";
 import type {
@@ -66,6 +67,7 @@ export function PreviewBoard() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [phase, setPhase] = useState<Phase>("aligning");
   const [view, setView] = useState<BoardView>("architecture");
+  const [extraPrompt, setExtraPrompt] = useState("");
 
   const selected = toBe.nodes.find((node) => node.id === selectedId);
   const running = phase === "executing";
@@ -107,13 +109,20 @@ export function PreviewBoard() {
         }
         primaryAction={
           phase === "aligning" ? (
-            <button
-              type="button"
-              onClick={executeProof}
-              className="inline-flex items-center gap-2 rounded-md bg-cta px-3.5 py-2 text-[13px] font-medium text-white transition-colors hover:bg-ink"
-            >
-              Execute plan <span aria-hidden>→</span>
-            </button>
+            <div className="flex items-center gap-2">
+              <RunNotesComposer
+                value={extraPrompt}
+                onChange={setExtraPrompt}
+                appliesTo="execute"
+              />
+              <button
+                type="button"
+                onClick={executeProof}
+                className="inline-flex items-center gap-2 rounded-md bg-cta px-3.5 py-2 text-[13px] font-medium text-white transition-colors hover:bg-ink"
+              >
+                Execute plan <span aria-hidden>→</span>
+              </button>
+            </div>
           ) : null
         }
       />

@@ -14,6 +14,7 @@ export async function POST(request: Request) {
       targetRepo?: string;
       targetRef?: string;
       prompt?: string;
+      extraPrompt?: string;
       snapshot?: MigrationSnapshot;
       requestKey?: string;
     };
@@ -35,6 +36,7 @@ export async function POST(request: Request) {
       targetRepo: body.targetRepo,
       targetRef: body.targetRef ?? "",
       prompt: body.prompt ?? "",
+      extraPrompt: body.extraPrompt ?? "",
       snapshot: body.snapshot,
       requestKey: body.requestKey,
     });

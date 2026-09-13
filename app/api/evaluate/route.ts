@@ -17,6 +17,7 @@ export async function POST(request: Request) {
       legacyBaseUrl?: string;
       targetBaseUrl?: string;
       fixtureCommand?: string;
+      extraPrompt?: string;
       snapshot?: MigrationSnapshot;
       requestKey?: string;
     };
@@ -40,6 +41,7 @@ export async function POST(request: Request) {
       legacyBaseUrl: body.legacyBaseUrl ?? "",
       targetBaseUrl: body.targetBaseUrl ?? "",
       fixtureCommand: body.fixtureCommand ?? "",
+      extraPrompt: body.extraPrompt ?? "",
       snapshot: body.snapshot,
       requestKey: body.requestKey,
     });
